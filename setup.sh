@@ -1,0 +1,473 @@
+#!/bin/bash
+set -euo pipefail
+
+# ============================================================================
+# Openclaw Bot Provisioning Script
+# Bootstraps a complete Openclaw personal AI assistant on a fresh machine.
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
+DRY_RUN=false
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
+ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+err()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+step()  { echo -e "\n${GREEN}==>${NC} $1"; }
+
+# --- Argument parsing ---
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Options:
+  --env-file PATH   Path to .env file (default: .env in script directory)
+  --dry-run         Show what would be done without making changes
+  --help            Show this help message
+
+Example:
+  cp .env.example .env
+  # Fill in your API keys and settings in .env
+  ./setup.sh
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --env-file)  ENV_FILE="$2"; shift 2 ;;
+        --dry-run)   DRY_RUN=true; shift ;;
+        --help)      usage ;;
+        *)           err "Unknown option: $1"; usage ;;
+    esac
+done
+
+# --- Source .env file ---
+if [ ! -f "$ENV_FILE" ]; then
+    err "No .env file found at: $ENV_FILE"
+    echo "  Copy .env.example to .env and fill in your values:"
+    echo "    cp ${SCRIPT_DIR}/.env.example ${SCRIPT_DIR}/.env"
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+
+# --- Validate required variables ---
+REQUIRED_VARS=(
+    BOT_NAME BOT_USER BOT_EMOJI
+    USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
+    NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
+    TELEGRAM_BOT_TOKEN
+)
+
+missing=()
+for var in "${REQUIRED_VARS[@]}"; do
+    if [ -z "${!var:-}" ]; then
+        missing+=("$var")
+    fi
+done
+
+if [ ${#missing[@]} -gt 0 ]; then
+    err "Missing required variables in .env:"
+    for var in "${missing[@]}"; do
+        echo "  - $var"
+    done
+    exit 1
+fi
+
+# --- Derived variables ---
+export BOT_NAME BOT_USER BOT_EMOJI
+export USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
+export NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
+export TELEGRAM_BOT_TOKEN TELEGRAM_USER_ID
+export GATEWAY_PORT="${GATEWAY_PORT:-18789}"
+
+# Auto-generate gateway token if blank
+if [ -z "${GATEWAY_TOKEN:-}" ]; then
+    GATEWAY_TOKEN=$(openssl rand -hex 24)
+    info "Auto-generated GATEWAY_TOKEN"
+fi
+export GATEWAY_TOKEN
+
+# Derive lowercase bot name
+BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]')
+export BOT_NAME_LOWER
+
+if $DRY_RUN; then
+    step "DRY RUN MODE — no changes will be made"
+    echo "  BOT_NAME=$BOT_NAME"
+    echo "  BOT_USER=$BOT_USER"
+    echo "  BOT_NAME_LOWER=$BOT_NAME_LOWER"
+    echo "  GATEWAY_PORT=$GATEWAY_PORT"
+    echo "  GATEWAY_TOKEN=${GATEWAY_TOKEN:0:8}..."
+    echo ""
+fi
+
+HOME_DIR="/home/${BOT_USER}"
+
+# --- Helper: run or print command ---
+run() {
+    if $DRY_RUN; then
+        echo "  [dry-run] $*"
+    else
+        "$@"
+    fi
+}
+
+# --- Helper: envsubst a template to a destination ---
+render_template() {
+    local src="$1"
+    local dst="$2"
+    if $DRY_RUN; then
+        echo "  [dry-run] envsubst < $src > $dst"
+    else
+        envsubst < "$src" > "$dst"
+    fi
+}
+
+# ============================================================================
+# PREREQUISITES
+# ============================================================================
+
+step "Checking prerequisites"
+
+# Check OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "$ID_LIKE" != *"debian"* ]]; then
+        warn "This script is designed for Ubuntu/Debian. Detected: $PRETTY_NAME"
+        warn "Proceeding anyway, but some steps may fail."
+    else
+        ok "OS: $PRETTY_NAME"
+    fi
+else
+    warn "Cannot detect OS. Proceeding anyway."
+fi
+
+# Check/install Node.js
+if command -v node &> /dev/null; then
+    NODE_VER=$(node --version)
+    NODE_MAJOR=$(echo "$NODE_VER" | sed 's/v\([0-9]*\).*/\1/')
+    if [ "$NODE_MAJOR" -ge 22 ]; then
+        ok "Node.js: $NODE_VER"
+    else
+        warn "Node.js $NODE_VER found but v22+ recommended"
+    fi
+else
+    step "Installing Node.js v22"
+    if ! $DRY_RUN; then
+        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+        sudo apt-get install -y nodejs
+        ok "Node.js installed: $(node --version)"
+    else
+        echo "  [dry-run] Would install Node.js v22 via NodeSource"
+    fi
+fi
+
+# Check/install required tools
+for tool in jq curl envsubst; do
+    if command -v "$tool" &> /dev/null; then
+        ok "$tool: available"
+    else
+        step "Installing $tool"
+        case $tool in
+            envsubst) run sudo apt-get install -y gettext-base ;;
+            *)        run sudo apt-get install -y "$tool" ;;
+        esac
+    fi
+done
+
+# ============================================================================
+# OPENCLAW INSTALLATION
+# ============================================================================
+
+step "Installing Openclaw"
+
+if command -v openclaw &> /dev/null; then
+    ok "Openclaw already installed: $(openclaw --version 2>/dev/null | head -1)"
+else
+    run sudo npm install -g openclaw@latest
+    if ! $DRY_RUN; then
+        ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
+    fi
+fi
+
+# Run onboarding (headless)
+if [ ! -d "${HOME_DIR}/.openclaw" ]; then
+    step "Running Openclaw onboarding"
+    run openclaw onboard --install-daemon
+else
+    ok "Openclaw already onboarded (~/.openclaw exists)"
+fi
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+step "Generating configuration"
+
+# Create directory structure
+run mkdir -p "${HOME_DIR}/.openclaw"
+run mkdir -p "${HOME_DIR}/.openclaw/agents/main/agent"
+run mkdir -p "${HOME_DIR}/.openclaw/credentials"
+run mkdir -p "${HOME_DIR}/.openclaw/cron"
+
+# Main config
+render_template "${SCRIPT_DIR}/templates/openclaw.json.tmpl" "${HOME_DIR}/.openclaw/openclaw.json"
+if ! $DRY_RUN; then
+    chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
+    ok "openclaw.json generated (mode 600)"
+fi
+
+# Auth profiles
+render_template "${SCRIPT_DIR}/templates/auth-profiles.json.tmpl" \
+    "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
+if ! $DRY_RUN; then
+    chmod 600 "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
+    ok "auth-profiles.json generated (mode 600)"
+fi
+
+# ============================================================================
+# EXTENSIONS
+# ============================================================================
+
+step "Installing extensions"
+
+EXTENSIONS=(
+    "@mem0/openclaw-mem0"
+    "@openclaw/openclaw-gmail"
+    "@openclaw/openclaw-gcal"
+    "@openclaw/openclaw-gdrive"
+)
+
+for ext in "${EXTENSIONS[@]}"; do
+    ext_name=$(echo "$ext" | sed 's/.*\///')
+    if [ -d "${HOME_DIR}/.openclaw/extensions/${ext_name}" ]; then
+        ok "${ext_name}: already installed"
+    else
+        info "Installing ${ext_name}..."
+        run openclaw plugins install "$ext"
+    fi
+done
+
+# ============================================================================
+# WORKSPACE
+# ============================================================================
+
+step "Setting up workspace"
+
+WORKSPACE="${HOME_DIR}/.openclaw/workspace"
+run mkdir -p "${WORKSPACE}/memory"
+run mkdir -p "${WORKSPACE}/skills"
+
+# Templated files
+render_template "${SCRIPT_DIR}/workspace/USER.md.tmpl" "${WORKSPACE}/USER.md"
+render_template "${SCRIPT_DIR}/workspace/IDENTITY.md.tmpl" "${WORKSPACE}/IDENTITY.md"
+
+# Copy static files (only if not already present, to preserve customizations)
+for file in SOUL.md AGENTS.md TOOLS.md HEARTBEAT.md; do
+    if [ ! -f "${WORKSPACE}/${file}" ]; then
+        run cp "${SCRIPT_DIR}/workspace/${file}" "${WORKSPACE}/${file}"
+        ok "${file}: copied"
+    else
+        ok "${file}: already exists (preserved)"
+    fi
+done
+
+# Copy skills
+if [ -d "${SCRIPT_DIR}/workspace/skills/" ]; then
+    run cp -r "${SCRIPT_DIR}/workspace/skills/"* "${WORKSPACE}/skills/" 2>/dev/null || true
+    ok "Skills copied"
+fi
+
+ok "Workspace ready"
+
+# ============================================================================
+# AUTOMATION SCRIPTS
+# ============================================================================
+
+step "Installing automation scripts"
+
+# Scripts that go to ~/
+for script in backup.sh watchdog.sh status.sh; do
+    dst="${HOME_DIR}/${script}"
+    if [ ! -f "$dst" ]; then
+        render_template "${SCRIPT_DIR}/scripts/${script}" "$dst"
+        run chmod +x "$dst"
+        ok "${script} → ~/${script}"
+    else
+        ok "${script}: already exists (preserved)"
+    fi
+done
+
+# rotate-config goes to ~/.openclaw/
+dst="${HOME_DIR}/.openclaw/rotate-config.sh"
+if [ ! -f "$dst" ]; then
+    render_template "${SCRIPT_DIR}/scripts/rotate-config.sh" "$dst"
+    run chmod +x "$dst"
+    ok "rotate-config.sh → ~/.openclaw/rotate-config.sh"
+else
+    ok "rotate-config.sh: already exists (preserved)"
+fi
+
+# ============================================================================
+# SYSTEMD SERVICE
+# ============================================================================
+
+step "Setting up systemd service"
+
+SYSTEMD_DIR="${HOME_DIR}/.config/systemd/user"
+run mkdir -p "$SYSTEMD_DIR"
+
+render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
+    "${SYSTEMD_DIR}/openclaw-gateway.service"
+
+if ! $DRY_RUN; then
+    systemctl --user daemon-reload
+    systemctl --user enable openclaw-gateway.service
+    ok "openclaw-gateway.service enabled"
+fi
+
+# ============================================================================
+# CRON JOBS
+# ============================================================================
+
+step "Setting up cron jobs"
+
+# System crontab entries
+add_cron_if_missing() {
+    local pattern="$1"
+    local entry="$2"
+    if crontab -l 2>/dev/null | grep -qF "$pattern"; then
+        ok "Cron: '$pattern' already present"
+    else
+        if $DRY_RUN; then
+            echo "  [dry-run] Would add cron: $entry"
+        else
+            (crontab -l 2>/dev/null; echo "$entry") | crontab -
+            ok "Cron: added '$pattern'"
+        fi
+    fi
+}
+
+add_cron_if_missing "backup.sh" \
+    "0 3 * * * ${HOME_DIR}/backup.sh >> ${HOME_DIR}/${BOT_NAME_LOWER}-backups/backup.log 2>&1"
+
+add_cron_if_missing "rotate-config.sh" \
+    "0 2 * * 0 ${HOME_DIR}/.openclaw/rotate-config.sh >> /dev/null 2>&1"
+
+add_cron_if_missing "watchdog.sh" \
+    "*/5 * * * * ${HOME_DIR}/watchdog.sh"
+
+# Openclaw internal cron jobs
+render_template "${SCRIPT_DIR}/cron/jobs.json.tmpl" "${HOME_DIR}/.openclaw/cron/jobs.json"
+ok "Openclaw cron jobs installed"
+
+# ============================================================================
+# SHELL PROFILE
+# ============================================================================
+
+step "Configuring shell profile"
+
+BASHRC="${HOME_DIR}/.bashrc"
+MARKER="# --- openclaw-provision ---"
+
+if ! grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
+    if $DRY_RUN; then
+        echo "  [dry-run] Would append Openclaw config to ~/.bashrc"
+    else
+        cat >> "$BASHRC" <<EOF
+
+${MARKER}
+# Openclaw completions
+if command -v openclaw &> /dev/null; then
+    eval "\$(openclaw completions bash)"
+fi
+
+# Don't log secrets in history
+export HISTIGNORE="\$HISTIGNORE:*API_KEY*:*TOKEN*:*SECRET*:*PASSWORD*"
+EOF
+        ok "Shell profile updated"
+    fi
+else
+    ok "Shell profile already configured"
+fi
+
+# ============================================================================
+# START & VERIFY
+# ============================================================================
+
+step "Starting gateway"
+
+if ! $DRY_RUN; then
+    systemctl --user start openclaw-gateway.service || true
+    info "Waiting for gateway startup..."
+    sleep 5
+
+    if openclaw health --timeout 15000 &>/dev/null; then
+        ok "Gateway is healthy"
+    else
+        warn "Gateway health check failed — it may still be starting up"
+        warn "Try: openclaw health (in a minute)"
+    fi
+
+    # Run doctor if available
+    if openclaw doctor &>/dev/null; then
+        ok "openclaw doctor: passed"
+    fi
+else
+    echo "  [dry-run] Would start openclaw-gateway.service and verify health"
+fi
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║                  Setup Complete!                          ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "  Bot:       ${BOT_NAME} ${BOT_EMOJI}"
+echo "  User:      ${BOT_USER}"
+echo "  Gateway:   http://127.0.0.1:${GATEWAY_PORT}"
+echo "  Config:    ${HOME_DIR}/.openclaw/openclaw.json"
+echo "  Workspace: ${HOME_DIR}/.openclaw/workspace/"
+echo ""
+echo "Verification commands:"
+echo "  openclaw health          # Gateway health"
+echo "  openclaw gateway status  # Service status"
+echo "  ~/${BOT_NAME_LOWER}-status.sh   # Full dashboard (once renamed)"
+echo "  crontab -l               # Cron jobs"
+echo ""
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║              Interactive Steps (do manually)              ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "1. Google OAuth Setup:"
+echo "   - Place your Google Cloud client secret at:"
+echo "     ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
+echo "   - Then run each auth flow:"
+echo "     openclaw gmail auth"
+echo "     openclaw gcal auth"
+echo "     openclaw gdrive auth"
+echo ""
+echo "2. Telegram Pairing:"
+echo "   - Open Telegram and message your bot (@BotFather token already configured)"
+echo "   - Run: openclaw telegram pair"
+echo "   - Follow the pairing instructions"
+echo ""
+echo "3. Test everything:"
+echo "   openclaw gmail test"
+echo "   openclaw health"
+echo "   ~/status.sh"
+echo ""

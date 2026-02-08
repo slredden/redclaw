@@ -1,0 +1,158 @@
+{
+  "env": {
+    "NVIDIA_API_KEY": "${NVIDIA_API_KEY}",
+    "MEM0_API_KEY": "${MEM0_API_KEY}"
+  },
+  "auth": {
+    "profiles": {
+      "vercel-ai-gateway:default": {
+        "provider": "vercel-ai-gateway",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "nvidia": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "${NVIDIA_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "moonshotai/kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 131072,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "nvidia/moonshotai/kimi-k2.5",
+        "fallbacks": [
+          "vercel-ai-gateway/deepseek/deepseek-v3.2-thinking"
+        ]
+      },
+      "models": {
+        "nvidia/moonshotai/kimi-k2.5": {
+          "alias": "Kimi K2.5 (Nvidia)"
+        },
+        "vercel-ai-gateway/anthropic/claude-opus-4.5": {
+          "alias": "Vercel AI Gateway"
+        },
+        "vercel-ai-gateway/deepseek/deepseek-v3.2-thinking": {}
+      },
+      "workspace": "/home/${BOT_USER}/.openclaw/workspace",
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
+    }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "apiKey": "${BRAVE_SEARCH_KEY}"
+      },
+      "fetch": {
+        "enabled": true
+      }
+    }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "groupPolicy": "allowlist",
+      "streamMode": "partial"
+    }
+  },
+  "gateway": {
+    "port": ${GATEWAY_PORT},
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "${GATEWAY_TOKEN}"
+    },
+    "tailscale": {
+      "mode": "serve",
+      "resetOnExit": true
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "plugins": {
+    "slots": {
+      "memory": "openclaw-mem0"
+    },
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "openclaw-mem0": {
+        "enabled": true,
+        "config": {
+          "apiKey": "${MEM0_API_KEY}",
+          "userId": "${BOT_NAME_LOWER}"
+        }
+      },
+      "memory-core": {
+        "enabled": false
+      },
+      "memory-lancedb": {
+        "enabled": false
+      },
+      "openclaw-gmail": {
+        "enabled": true,
+        "config": {
+          "clientSecretPath": "/home/${BOT_USER}/.openclaw/credentials/gmail-client-secret.json",
+          "tokenPath": "/home/${BOT_USER}/.openclaw/credentials/gmail-token.json"
+        }
+      },
+      "openclaw-gcal": {
+        "enabled": true,
+        "config": {
+          "clientSecretPath": "/home/${BOT_USER}/.openclaw/credentials/gmail-client-secret.json",
+          "tokenPath": "/home/${BOT_USER}/.openclaw/credentials/gcal-token.json"
+        }
+      },
+      "openclaw-gdrive": {
+        "enabled": true,
+        "config": {
+          "clientSecretPath": "/home/${BOT_USER}/.openclaw/credentials/gmail-client-secret.json",
+          "tokenPath": "/home/${BOT_USER}/.openclaw/credentials/gdrive-token.json"
+        }
+      }
+    }
+  }
+}
