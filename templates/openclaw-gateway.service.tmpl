@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart="/usr/bin/node" "/usr/lib/node_modules/openclaw/dist/index.js" gateway --port ${GATEWAY_PORT}
+ExecStart="/usr/bin/node" "/home/${BOT_USER}/.npm-global/lib/node_modules/openclaw/dist/index.js" gateway --port ${GATEWAY_PORT}
 Restart=always
 RestartSec=5
 KillMode=process
