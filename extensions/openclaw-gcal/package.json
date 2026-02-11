@@ -1,0 +1,23 @@
+{
+  "name": "@openclaw/openclaw-gcal",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Google Calendar plugin for OpenClaw — direct Google API via OAuth2",
+  "license": "Apache-2.0",
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "google-calendar",
+    "calendar",
+    "scheduling"
+  ],
+  "dependencies": {
+    "@sinclair/typebox": "0.34.47",
+    "open": "^10.1.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

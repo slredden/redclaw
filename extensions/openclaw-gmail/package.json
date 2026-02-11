@@ -1,0 +1,24 @@
+{
+  "name": "@openclaw/openclaw-gmail",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Gmail plugin for OpenClaw — direct Google API via OAuth2",
+  "license": "Apache-2.0",
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "gmail",
+    "google",
+    "email"
+  ],
+  "dependencies": {
+    "@sinclair/typebox": "0.34.47",
+    "googleapis": "^144.0.0",
+    "open": "^10.1.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

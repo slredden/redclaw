@@ -1,0 +1,25 @@
+{
+  "id": "openclaw-gdrive",
+  "kind": "tool",
+  "uiHints": {
+    "clientSecretPath": {
+      "label": "Client Secret Path",
+      "placeholder": "~/.openclaw/credentials/gmail-client-secret.json",
+      "help": "Path to Google OAuth2 client secret JSON file (shared across Google plugins)"
+    },
+    "tokenPath": {
+      "label": "Token Path",
+      "placeholder": "~/.openclaw/credentials/gdrive-token.json",
+      "help": "Path to store the OAuth2 refresh token"
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "clientSecretPath": { "type": "string" },
+      "tokenPath": { "type": "string" }
+    },
+    "required": []
+  }
+}
