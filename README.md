@@ -414,12 +414,22 @@ The watchdog script (`watchdog.sh`) runs via cron every 5 minutes:
 
 ### Backups
 
-Daily at 3 AM, `backup.sh` runs:
+Daily at 3 AM, `backup.sh` creates a compressed `.tar.gz` archive containing:
 
-- Copies the entire `~/.openclaw/` directory (config, workspace, credentials, extensions)
-- Creates a sanitized config copy (gateway token stripped) for safe reference
-- Retains 14 days of backups, auto-deletes older ones
-- Logs to `~/<botname>-backups/backup.log`
+- `~/.openclaw/` — config, workspace, credentials, extensions, session state
+- `~/.config/gogcli/` — Google Workspace OAuth tokens
+- `~/.config/<botname>-backup.conf` — SFTP offsite backup credentials
+- `~/.ssh/` — SSH key pairs, config, authorized_keys
+- Crontab dump (`crontab.txt`)
+- `~/<botname>-docs/` — documentation and research notes
+- Standalone scripts (`backup.sh`, `watchdog.sh`, `status.sh`, etc.)
+- Sanitized config copy (gateway token stripped) for safe reference
+
+**Retention:** 7 days local, 30 days on SFTP (if configured).
+
+**Offsite:** If SFTP is configured in `~/.config/<botname>-backup.conf`, each backup is uploaded to the remote server after compression. Old remote backups are cleaned up automatically.
+
+Logs to `~/<botname>-backups/backup.log`.
 
 ### Internal Cron Jobs
 
@@ -559,14 +569,154 @@ openclaw doctor    # Verify everything still works
 
 ### Restoring from Backup
 
-```bash
-# List available backups
-ls ~/<botname>-backups/
+Backups are compressed tarballs named `<botname>-backup-YYYYMMDD-HHMMSS.tar.gz`. Each contains a complete snapshot of everything needed for a full restore.
 
-# Restore a specific backup (stop gateway first)
+#### Archive contents
+
+```
+auto-YYYYMMDD-HHMMSS/
+├── .openclaw/              # Core config, workspace, credentials, extensions
+├── openclaw-sanitized.json # Config with gateway token stripped (reference only)
+├── config/
+│   ├── gogcli/             # Google Workspace OAuth tokens
+│   └── <botname>-backup.conf  # SFTP backup config
+├── ssh/
+│   ├── id_*                # SSH key pairs
+│   ├── config              # SSH client config
+│   └── authorized_keys     # Authorized remote keys
+├── crontab.txt             # Crontab entries
+├── docs/                   # Documentation and research notes
+└── scripts/                # Standalone automation scripts
+```
+
+#### Quick restore (same machine)
+
+```bash
+# 1. Pick a backup
+ls ~/<botname>-backups/<botname>-backup-*.tar.gz
+
+# 2. Stop the gateway
 systemctl --user stop openclaw-gateway
-cp -r ~/<botname>-backups/auto-YYYYMMDD-HHMMSS/.openclaw ~/
+
+# 3. Extract the archive
+cd ~/<botname>-backups
+tar -xzf <botname>-backup-YYYYMMDD-HHMMSS.tar.gz
+
+# 4. Restore core state
+cp -pr auto-YYYYMMDD-HHMMSS/.openclaw ~/
+
+# 5. Restore config files
+cp -pr auto-YYYYMMDD-HHMMSS/config/gogcli ~/.config/
+cp -p auto-YYYYMMDD-HHMMSS/config/<botname>-backup.conf ~/.config/
+
+# 6. Restore SSH keys (if needed)
+cp -p auto-YYYYMMDD-HHMMSS/ssh/* ~/.ssh/
+chmod 600 ~/.ssh/id_*
+chmod 644 ~/.ssh/*.pub ~/.ssh/authorized_keys 2>/dev/null
+
+# 7. Restore standalone scripts
+cp -p auto-YYYYMMDD-HHMMSS/scripts/* ~/
+
+# 8. Restore crontab
+crontab auto-YYYYMMDD-HHMMSS/crontab.txt
+
+# 9. Restore docs (if needed)
+cp -pr auto-YYYYMMDD-HHMMSS/docs ~/<botname>-docs
+
+# 10. Start the gateway
 systemctl --user start openclaw-gateway
+
+# 11. Clean up extracted directory
+rm -rf auto-YYYYMMDD-HHMMSS/
+```
+
+#### Restoring from SFTP (when local backups are gone)
+
+```bash
+# Download the latest backup from the remote server
+# Using password auth:
+curl --insecure -u "USER:PASS" \
+    "sftp://HOST:PORT/REMOTE_PATH/<botname>-backup-YYYYMMDD-HHMMSS.tar.gz" \
+    -o ~/<botname>-backups/<botname>-backup-YYYYMMDD-HHMMSS.tar.gz
+
+# Or using key-based auth:
+curl --insecure --key ~/.ssh/id_ed25519 -u "USER:" \
+    "sftp://HOST:PORT/REMOTE_PATH/<botname>-backup-YYYYMMDD-HHMMSS.tar.gz" \
+    -o ~/<botname>-backups/<botname>-backup-YYYYMMDD-HHMMSS.tar.gz
+
+# List available remote backups:
+echo "ls /REMOTE_PATH/<botname>-backup-*.tar.gz" | \
+    sftp -oPort=PORT USER@HOST
+
+# Then follow the "Quick restore" steps above.
+```
+
+#### Full rebuild (new machine)
+
+On a fresh machine with nothing installed:
+
+```bash
+# 1. Install prerequisites (Node.js, git)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt install -y nodejs git jq curl
+
+# 2. Clone the provisioning repo
+git clone git@github.com:<your-org>/redclaw.git ~/redclaw
+
+# 3. Copy your .env file (from password manager, secure notes, etc.)
+cp /path/to/.env ~/redclaw/.env
+
+# 4. Run provisioning
+cd ~/redclaw && ./setup.sh
+
+# 5. Transfer a backup archive to the new machine
+scp user@old-host:~/<botname>-backups/<botname>-backup-*.tar.gz /tmp/
+
+# 6. Extract and restore state on top of the fresh install
+cd /tmp && tar -xzf <botname>-backup-*.tar.gz
+systemctl --user stop openclaw-gateway
+cp -pr auto-*/.openclaw ~/
+cp -pr auto-*/config/gogcli ~/.config/
+cp -p auto-*/config/<botname>-backup.conf ~/.config/
+cp -p auto-*/ssh/* ~/.ssh/ && chmod 600 ~/.ssh/id_*
+cp -p auto-*/scripts/* ~/
+crontab auto-*/crontab.txt
+cp -pr auto-*/docs ~/<botname>-docs
+systemctl --user start openclaw-gateway
+rm -rf auto-*/
+
+# 7. Verify
+openclaw health
+~/status.sh
+```
+
+#### Post-restore verification
+
+After any restore, verify these:
+
+```bash
+# Gateway is healthy
+openclaw health
+
+# Service is running
+systemctl --user status openclaw-gateway
+
+# Full status dashboard
+~/status.sh
+
+# Cron jobs are installed
+crontab -l
+
+# Google Workspace works (may need re-auth if tokens expired)
+gog gmail ls --max 1
+
+# SSH access works
+ssh -T git@github.com
+```
+
+If Google auth tokens have expired, re-authenticate:
+```bash
+GOG_KEYRING_PASSWORD=<your-password> gog auth login --manual
 ```
 
 ---
@@ -636,7 +786,7 @@ systemctl --user start openclaw-gateway
 │       └── life-os/                   # Life OS skill source
 │
 ├── scripts/                           # Automation scripts (templated)
-│   ├── backup.sh                      # Daily backup with 14-day retention
+│   ├── backup.sh                      # Daily compressed backup with SFTP offsite
 │   ├── watchdog.sh                    # Gateway health watchdog (rate-limited)
 │   ├── status.sh                      # Status dashboard
 │   └── rotate-config.sh              # Config version rotation
