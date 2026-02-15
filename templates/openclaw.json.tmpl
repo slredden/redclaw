@@ -44,17 +44,16 @@
       "model": {
         "primary": "nvidia/moonshotai/kimi-k2.5",
         "fallbacks": [
-          "vercel-ai-gateway/deepseek/deepseek-v3.2-thinking"
+          "vercel-ai-gateway/mistral/ministral-3b"
         ]
       },
       "models": {
         "nvidia/moonshotai/kimi-k2.5": {
           "alias": "Kimi K2.5 (Nvidia)"
         },
-        "vercel-ai-gateway/anthropic/claude-opus-4.5": {
-          "alias": "Vercel AI Gateway"
-        },
-        "vercel-ai-gateway/deepseek/deepseek-v3.2-thinking": {}
+        "vercel-ai-gateway/mistral/ministral-3b": {
+          "alias": "Ministral 3B (Vercel)"
+        }
       },
       "workspace": "/home/${BOT_USER}/.openclaw/workspace",
       "compaction": {
@@ -62,6 +61,7 @@
       },
       "maxConcurrent": 4,
       "subagents": {
+        "model": "nvidia/moonshotai/kimi-k2.5",
         "maxConcurrent": 8
       }
     }
