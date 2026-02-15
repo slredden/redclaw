@@ -90,6 +90,7 @@ export USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
 export NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
 export TELEGRAM_BOT_TOKEN TELEGRAM_USER_ID
 export GATEWAY_PORT="${GATEWAY_PORT:-18789}"
+export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-redbot}"
 
 # Auto-generate gateway token if blank
 if [ -z "${GATEWAY_TOKEN:-}" ]; then
@@ -244,9 +245,6 @@ step "Installing extensions"
 
 EXTENSIONS=(
     "@mem0/openclaw-mem0"
-    "@openclaw/openclaw-gmail"
-    "@openclaw/openclaw-gcal"
-    "@openclaw/openclaw-gdrive"
 )
 
 for ext in "${EXTENSIONS[@]}"; do
@@ -258,6 +256,38 @@ for ext in "${EXTENSIONS[@]}"; do
         run openclaw plugins install "$ext"
     fi
 done
+
+# ============================================================================
+# GOG (Google Workspace CLI)
+# ============================================================================
+
+step "Installing gog (Google Workspace CLI)"
+
+GOG_VERSION="0.10.0"
+GOG_BIN="${HOME_DIR}/.npm-global/bin/gog"
+
+if [ -x "$GOG_BIN" ]; then
+    ok "gog already installed: $($GOG_BIN --version 2>/dev/null | head -1)"
+else
+    GOG_ARCH=$(uname -m)
+    case "$GOG_ARCH" in
+        x86_64)  GOG_ARCH="amd64" ;;
+        aarch64) GOG_ARCH="arm64" ;;
+        *)       err "Unsupported architecture: $GOG_ARCH"; exit 1 ;;
+    esac
+    GOG_URL="https://github.com/steipete/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_${GOG_ARCH}.tar.gz"
+    if $DRY_RUN; then
+        echo "  [dry-run] Would download gog from ${GOG_URL}"
+    else
+        info "Downloading gog v${GOG_VERSION}..."
+        curl -fsSL "$GOG_URL" -o /tmp/gogcli.tar.gz
+        tar -xzf /tmp/gogcli.tar.gz -C /tmp/ gog
+        mv /tmp/gog "$GOG_BIN"
+        chmod +x "$GOG_BIN"
+        rm -f /tmp/gogcli.tar.gz
+        ok "gog installed: $($GOG_BIN --version 2>/dev/null | head -1)"
+    fi
+fi
 
 # ============================================================================
 # WORKSPACE
@@ -453,13 +483,15 @@ echo "╔═══════════════════════�
 echo "║              Interactive Steps (do manually)              ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "1. Google OAuth Setup:"
+echo "1. Google OAuth Setup (via gog):"
 echo "   - Place your Google Cloud client secret at:"
 echo "     ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
-echo "   - Then run each auth flow:"
-echo "     openclaw gmail auth"
-echo "     openclaw gcal auth"
-echo "     openclaw gdrive auth"
+echo "   - Import credentials and authenticate:"
+echo "     gog auth credentials set ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
+echo "     gog auth keyring file"
+echo "     gog auth add ${USER_EMAIL} --remote --step 1 --services gmail,calendar,drive,contacts,sheets,docs"
+echo "     # Open the URL in a browser, grant access, then:"
+echo "     gog auth add ${USER_EMAIL} --manual --auth-url '<paste redirect URL>'"
 echo ""
 echo "2. Telegram Pairing:"
 echo "   - Open Telegram and message your bot (@BotFather token already configured)"
@@ -467,7 +499,9 @@ echo "   - Run: openclaw telegram pair"
 echo "   - Follow the pairing instructions"
 echo ""
 echo "3. Test everything:"
-echo "   openclaw gmail test"
+echo "   gog gmail search 'newer_than:1d' --max 5 --json"
+echo "   gog calendar list --json"
+echo "   gog drive ls --json"
 echo "   openclaw health"
 echo "   ~/status.sh"
 echo ""
