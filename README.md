@@ -187,35 +187,79 @@ This is the most involved step. You need a Google Cloud project with OAuth crede
 
 ## Quick Start
 
+**You'll need two user accounts:**
+- **Admin user** (with sudo access) — runs prerequisites
+- **Bot user** (standard user, no sudo) — runs Openclaw
+
+### Step 1: Get the Code (as admin user)
+
+**Option A: Clone with git** (if you have git configured):
 ```bash
-# 1. Clone this repo as an admin user (with sudo access)
-git clone <your-repo-url> ~/redbot-provision
-cd ~/redbot-provision
+git clone https://github.com/slredden/redclaw.git ~/redclaw
+cd ~/redclaw
+```
 
-# 2. Install system prerequisites and copy repo to bot user's home
+**Option B: Download zip** (easier for non-developers):
+1. Go to https://github.com/slredden/redclaw
+2. Click the green **Code** button → **Download ZIP**
+3. Extract it:
+   ```bash
+   cd ~
+   unzip ~/Downloads/redclaw-main.zip
+   cd ~/redclaw-main
+   ```
+
+### Step 2: Install Prerequisites (as admin user)
+
+```bash
+# Install system packages and prepare bot user's environment
 ./prereqs.sh --bot-user <bot-user>
+```
 
-# 3. Switch to the bot user
-su - <bot-user>
-cd ~/redbot-provision
+This installs Node.js, npm, and other dependencies, then copies the repo to the bot user's home directory.
 
-# 4. Create your .env file from the template
+### Step 3: Switch to Bot User
+
+**IMPORTANT:** You must log out completely and log back in as the bot user. Using `su` won't work because systemd user services need a fresh login session.
+
+```bash
+# Log out of your admin session
+exit
+
+# Log in as the bot user (via SSH or console)
+# Example: ssh bot-user@localhost
+```
+
+The bot user will work from `~/redclaw-main` (or `~/redclaw` if you cloned with git).
+
+### Step 4: Configure Your Bot (as bot user)
+
+```bash
+cd ~/redclaw-main   # or ~/redclaw if you used git
+
+# Create your .env file from the template
 cp .env.example .env
 
-# 5. Fill in all your API keys and settings
+# Fill in all your API keys and settings
 nano .env    # or vim, or whatever you prefer
+```
 
-# 6. Preview what will happen (recommended first time)
+**SECURITY TIP:** Save your `.env` file contents (or at least the `GATEWAY_TOKEN` and API keys) in a password manager or password-protected file. You'll need these to access the dashboard later.
+
+### Step 5: Run Setup (as bot user)
+
+```bash
+# Preview what will happen (recommended first time)
 ./setup.sh --dry-run
 
-# 7. Run the actual setup
+# Run the actual setup
 ./setup.sh
 ```
 
-The setup takes about 2-5 minutes. `prereqs.sh` installs system packages (Node.js, jq, curl, etc.) and `setup.sh` does the rest without sudo:
+Setup takes 2-5 minutes and will:
 - Install Openclaw to `~/.npm-global/`
 - Generate all config files from your `.env` values
-- Install extensions (mem0)
+- Install extensions (mem0, gmail, gcal, gdrive)
 - Set up the systemd gateway service
 - Install cron jobs for backup, watchdog, and config rotation
 - Copy workspace files (personality, behavior, tools)
@@ -223,7 +267,7 @@ The setup takes about 2-5 minutes. `prereqs.sh` installs system packages (Node.j
 
 ### Command-Line Options
 
-```
+```bash
 ./setup.sh                    # Run with .env in script directory
 ./setup.sh --env-file /path   # Use a different .env file
 ./setup.sh --dry-run          # Preview without making changes
@@ -276,6 +320,30 @@ The setup takes about 2-5 minutes. `prereqs.sh` installs system packages (Node.j
 ## Post-Setup: Interactive Steps
 
 These steps require a browser or interactive terminal and cannot be automated by `setup.sh`. The script prints reminders at the end.
+
+### Step 0: Access the Dashboard
+
+Your Openclaw Control UI is running at `http://127.0.0.1:18789` (localhost only, not exposed to the network).
+
+**Get your gateway token:**
+```bash
+# Your token is in the .env file or in the config
+grep GATEWAY_TOKEN .env
+# Or check the config file:
+jq -r '.gateway.token' ~/.openclaw/openclaw.json
+```
+
+**Access the dashboard:**
+```
+http://127.0.0.1:18789/?token=<your-gateway-token-here>
+```
+
+**IMPORTANT:** Save this full URL (with your token) in a secure location:
+- Password manager (recommended)
+- Encrypted notes file
+- Password-protected document
+
+Without the token in the URL, you'll need to enter it manually each time you visit the dashboard.
 
 ### Step 1: Place Google OAuth Credentials
 
