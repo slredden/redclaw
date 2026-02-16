@@ -513,8 +513,13 @@ if ! $DRY_RUN; then
         warn "Could not start gateway via systemd — start manually with: openclaw gateway up"
     fi
 
-    # Run doctor (skip if gateway didn't start — it hangs without a running gateway)
-    if systemctl --user is-active openclaw-gateway.service &>/dev/null; then
+    # Run doctor only if gateway service is running (skip check if systemctl hangs)
+    GATEWAY_ACTIVE=false
+    if timeout 3 systemctl --user is-active openclaw-gateway.service &>/dev/null; then
+        GATEWAY_ACTIVE=true
+    fi
+
+    if $GATEWAY_ACTIVE; then
         if timeout --kill-after=5 15 openclaw doctor &>/dev/null; then
             ok "openclaw doctor: passed"
         else
