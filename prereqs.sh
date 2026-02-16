@@ -137,6 +137,19 @@ if [ ${#TOOLS_TO_INSTALL[@]} -gt 0 ]; then
 fi
 
 # ============================================================================
+# Enable systemd lingering for the bot user
+# ============================================================================
+
+step "Enabling systemd lingering"
+
+if loginctl show-user "$BOT_USER" --property=Linger 2>/dev/null | grep -q "Linger=yes"; then
+    ok "Lingering already enabled for ${BOT_USER}"
+else
+    sudo loginctl enable-linger "$BOT_USER"
+    ok "Lingering enabled for ${BOT_USER} (systemd user services will persist across logouts)"
+fi
+
+# ============================================================================
 # Copy repo to bot user's home
 # ============================================================================
 
