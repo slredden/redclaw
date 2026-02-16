@@ -20,6 +20,36 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 step()  { echo -e "\n${GREEN}==>${NC} $1"; }
 
+# --- Argument parsing ---
+usage() {
+    echo "Usage: $(basename "$0") --bot-user <username>"
+    echo ""
+    echo "Installs system prerequisites, then copies this repo to the bot user's home."
+    exit 1
+}
+
+BOT_USER=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --bot-user)
+            [[ -z "${2:-}" ]] && { err "--bot-user requires a username"; usage; }
+            BOT_USER="$2"; shift 2 ;;
+        -h|--help)
+            usage ;;
+        *)
+            err "Unknown argument: $1"; usage ;;
+    esac
+done
+
+[[ -z "$BOT_USER" ]] && { err "Missing required argument: --bot-user <username>"; usage; }
+
+if ! id "$BOT_USER" &>/dev/null; then
+    err "User '$BOT_USER' does not exist. Create it first (adduser $BOT_USER)."
+    exit 1
+fi
+
+BOT_USER_HOME=$(getent passwd "$BOT_USER" | cut -d: -f6)
+
 # --- Check sudo access ---
 if ! sudo -v 2>/dev/null; then
     err "This script requires sudo access. Run as an admin user."
@@ -107,6 +137,26 @@ if [ ${#TOOLS_TO_INSTALL[@]} -gt 0 ]; then
 fi
 
 # ============================================================================
+# Copy repo to bot user's home
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEST_DIR="${BOT_USER_HOME}/redbot-provision"
+
+step "Copying repo to ${DEST_DIR}"
+
+if [[ -d "$DEST_DIR" ]]; then
+    warn "Destination already exists — replacing it"
+    sudo rm -rf "$DEST_DIR"
+fi
+
+sudo mkdir -p "$DEST_DIR"
+tar -C "$SCRIPT_DIR" --exclude='.git' --exclude='.env' --exclude='.claude' -cf - . \
+    | sudo tar -C "$DEST_DIR" -xf -
+sudo chown -R "${BOT_USER}:${BOT_USER}" "$DEST_DIR"
+ok "Repo copied to ${DEST_DIR}"
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 
@@ -122,9 +172,15 @@ echo "  curl:      $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
 echo "  envsubst:  $(envsubst --version 2>/dev/null | head -1 || echo 'available')"
 echo "  openssl:   $(openssl version 2>/dev/null)"
 echo ""
+echo "Repo copied to: ${DEST_DIR}"
+echo ""
 echo "Next steps:"
-echo "  1. Switch to the standard user that will run Openclaw:"
-echo "     su - <bot-user>"
-echo "  2. Run the setup script:"
-echo "     cd $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) && ./setup.sh"
+echo "  1. Switch to the bot user:"
+echo "     su - ${BOT_USER}"
+echo "  2. Set up the environment:"
+echo "     cd ~/redbot-provision"
+echo "     cp .env.example .env"
+echo "     nano .env"
+echo "  3. Run the setup script:"
+echo "     ./setup.sh"
 echo ""

@@ -188,16 +188,16 @@ This is the most involved step. You need a Google Cloud project with OAuth crede
 ## Quick Start
 
 ```bash
-# 1. Clone this repo (as admin or standard user)
-git clone <your-repo-url> ~/redclaw
-cd ~/redclaw
+# 1. Clone this repo as an admin user (with sudo access)
+git clone <your-repo-url> ~/redbot-provision
+cd ~/redbot-provision
 
-# 2. Install system prerequisites (as admin — requires sudo)
-./prereqs.sh
+# 2. Install system prerequisites and copy repo to bot user's home
+./prereqs.sh --bot-user <bot-user>
 
-# 3. Switch to the standard bot user
+# 3. Switch to the bot user
 su - <bot-user>
-cd ~/redclaw    # or wherever you cloned it
+cd ~/redbot-provision
 
 # 4. Create your .env file from the template
 cp .env.example .env
