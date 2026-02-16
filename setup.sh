@@ -412,13 +412,21 @@ render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
     "${SYSTEMD_DIR}/openclaw-gateway.service"
 
 if ! $DRY_RUN; then
-    if systemctl --user daemon-reload 2>/dev/null; then
+    # Test systemd --user access with detailed diagnostics
+    SYSTEMD_ERROR=$(systemctl --user daemon-reload 2>&1)
+    if [ $? -eq 0 ]; then
         systemctl --user enable openclaw-gateway.service
         ok "openclaw-gateway.service enabled"
     else
         warn "systemd user services unavailable — skipping service enable"
-        warn "You may need to enable lingering: sudo loginctl enable-linger ${BOT_USER}"
-        warn "Then log out and back in so the systemd user manager starts"
+        if echo "$SYSTEMD_ERROR" | grep -qi "permission denied"; then
+            warn "D-Bus permission denied — you need a fresh login session"
+            warn "Exit and log in again as ${BOT_USER} (don't use 'su'), then re-run setup.sh"
+        elif echo "$SYSTEMD_ERROR" | grep -qi "no such file"; then
+            warn "systemd --user not available on this system"
+        else
+            warn "Error: $SYSTEMD_ERROR"
+        fi
     fi
 fi
 
@@ -480,7 +488,7 @@ export PATH="\${HOME}/.npm-global/bin:\${PATH}"
 
 # Openclaw completions
 if command -v openclaw &> /dev/null; then
-    eval "\$(openclaw completions bash)"
+    eval "\$(openclaw completion bash)"
 fi
 
 # Don't log secrets in history
