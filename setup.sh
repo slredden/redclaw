@@ -66,7 +66,6 @@ REQUIRED_VARS=(
     BOT_NAME BOT_USER BOT_EMOJI
     USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
     NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
-    TELEGRAM_BOT_TOKEN
 )
 
 missing=()
@@ -136,56 +135,53 @@ render_template() {
 }
 
 # ============================================================================
-# PREREQUISITES
+# PREREQUISITES (must be installed by admin via prereqs.sh)
 # ============================================================================
 
 step "Checking prerequisites"
 
-# Check OS
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "$ID_LIKE" != *"debian"* ]]; then
-        warn "This script is designed for Ubuntu/Debian. Detected: $PRETTY_NAME"
-        warn "Proceeding anyway, but some steps may fail."
-    else
-        ok "OS: $PRETTY_NAME"
-    fi
-else
-    warn "Cannot detect OS. Proceeding anyway."
-fi
+PREREQ_MISSING=false
 
-# Check/install Node.js
+# Check Node.js >= 22
 if command -v node &> /dev/null; then
     NODE_VER=$(node --version)
     NODE_MAJOR=$(echo "$NODE_VER" | sed 's/v\([0-9]*\).*/\1/')
     if [ "$NODE_MAJOR" -ge 22 ]; then
         ok "Node.js: $NODE_VER"
     else
-        warn "Node.js $NODE_VER found but v22+ recommended"
+        err "Node.js $NODE_VER found but v22+ required"
+        PREREQ_MISSING=true
     fi
 else
-    step "Installing Node.js v22"
-    if ! $DRY_RUN; then
-        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-        ok "Node.js installed: $(node --version)"
-    else
-        echo "  [dry-run] Would install Node.js v22 via NodeSource"
-    fi
+    err "Node.js not found"
+    PREREQ_MISSING=true
 fi
 
-# Check/install required tools
-for tool in jq curl envsubst; do
+# Check npm
+if command -v npm &> /dev/null; then
+    ok "npm: $(npm --version)"
+else
+    err "npm not found"
+    PREREQ_MISSING=true
+fi
+
+# Check required tools
+for tool in jq curl envsubst openssl; do
     if command -v "$tool" &> /dev/null; then
         ok "$tool: available"
     else
-        step "Installing $tool"
-        case $tool in
-            envsubst) run sudo apt-get install -y gettext-base ;;
-            *)        run sudo apt-get install -y "$tool" ;;
-        esac
+        err "$tool not found"
+        PREREQ_MISSING=true
     fi
 done
+
+if $PREREQ_MISSING; then
+    echo ""
+    err "Missing prerequisites. Run prereqs.sh as an admin user first:"
+    echo "  sudo -u <admin> ${SCRIPT_DIR}/prereqs.sh"
+    echo "  (or: log in as admin and run ./prereqs.sh)"
+    exit 1
+fi
 
 # ============================================================================
 # OPENCLAW INSTALLATION
@@ -193,10 +189,14 @@ done
 
 step "Installing Openclaw"
 
+# Ensure user-local npm prefix is on PATH
+NPM_GLOBAL="${HOME_DIR}/.npm-global"
+export PATH="${NPM_GLOBAL}/bin:${PATH}"
+
 if command -v openclaw &> /dev/null; then
     ok "Openclaw already installed: $(openclaw --version 2>/dev/null | head -1)"
 else
-    run sudo npm install -g openclaw@latest
+    run npm install -g --prefix "${NPM_GLOBAL}" openclaw@latest
     if ! $DRY_RUN; then
         ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
     fi
@@ -227,6 +227,15 @@ render_template "${SCRIPT_DIR}/templates/openclaw.json.tmpl" "${HOME_DIR}/.openc
 if ! $DRY_RUN; then
     chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
     ok "openclaw.json generated (mode 600)"
+
+    # Disable Telegram in config if token not provided
+    if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+        jq '.channels.telegram.enabled = false | .plugins.entries.telegram.enabled = false' \
+            "${HOME_DIR}/.openclaw/openclaw.json" > "${HOME_DIR}/.openclaw/openclaw.json.tmp" \
+            && mv "${HOME_DIR}/.openclaw/openclaw.json.tmp" "${HOME_DIR}/.openclaw/openclaw.json"
+        chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
+        info "Telegram not configured -- disabled in config (add token later to enable)"
+    fi
 fi
 
 # Auth profiles
@@ -418,6 +427,9 @@ if ! grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
         cat >> "$BASHRC" <<EOF
 
 ${MARKER}
+# User-local npm global bin
+export PATH="\${HOME}/.npm-global/bin:\${PATH}"
+
 # Openclaw completions
 if command -v openclaw &> /dev/null; then
     eval "\$(openclaw completions bash)"
@@ -493,12 +505,19 @@ echo "     gog auth add ${USER_EMAIL} --remote --step 1 --services gmail,calenda
 echo "     # Open the URL in a browser, grant access, then:"
 echo "     gog auth add ${USER_EMAIL} --manual --auth-url '<paste redirect URL>'"
 echo ""
-echo "2. Telegram Pairing:"
-echo "   - Open Telegram and message your bot (@BotFather token already configured)"
-echo "   - Run: openclaw telegram pair"
-echo "   - Follow the pairing instructions"
-echo ""
-echo "3. Test everything:"
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+    echo "2. Telegram Pairing:"
+    echo "   - Open Telegram and message your bot (@BotFather token already configured)"
+    echo "   - Run: openclaw telegram pair"
+    echo "   - Follow the pairing instructions"
+    echo ""
+    echo "3. Test everything:"
+else
+    echo "2. Telegram (skipped -- no TELEGRAM_BOT_TOKEN in .env):"
+    echo "   - To add Telegram later, set TELEGRAM_BOT_TOKEN in .env and re-run setup.sh"
+    echo ""
+    echo "3. Test everything:"
+fi
 echo "   gog gmail search 'newer_than:1d' --max 5 --json"
 echo "   gog calendar list --json"
 echo "   gog drive ls --json"

@@ -2,7 +2,7 @@
 
 Reproducible setup for a personal AI assistant powered by [Openclaw](https://openclaw.dev) with free model routing, Telegram integration, mem0 memory, Google Workspace plugins, and automated health monitoring.
 
-One script. One `.env` file. A fully operational AI assistant.
+Two scripts. One `.env` file. A fully operational AI assistant.
 
 ---
 
@@ -88,14 +88,21 @@ One script. One `.env` file. A fully operational AI assistant.
 
 ### System Requirements
 - **OS**: Ubuntu 22.04+ or Debian 12+ (other Linux distros may work with adjustments)
-- **Node.js**: v22+ (setup script will install if missing)
+- **Node.js**: v22+ (installed by `prereqs.sh`)
 - **RAM**: 512MB+ free (the gateway is lightweight)
 - **Disk**: ~500MB for Openclaw + extensions
 - **Network**: Outbound HTTPS access (no inbound ports needed)
 
+### Two-Phase Setup
+
+Setup is split into two scripts for security — Openclaw runs as a **standard user** (no sudo):
+
+1. **`prereqs.sh`** — Run as an admin user (requires sudo). Installs Node.js, npm, jq, curl, envsubst, openssl.
+2. **`setup.sh`** — Run as the standard bot user (zero sudo). Installs Openclaw, generates config, sets up services.
+
 ### Accounts & API Keys (All Free)
 
-You need 5 API keys before running setup. All are free tier:
+You need 4 API keys before running setup (Telegram is optional). All are free tier:
 
 | Service | What It Does | Free Tier Limits |
 |---------|-------------|-----------------|
@@ -181,28 +188,34 @@ This is the most involved step. You need a Google Cloud project with OAuth crede
 ## Quick Start
 
 ```bash
-# 1. Clone this repo
+# 1. Clone this repo (as admin or standard user)
 git clone <your-repo-url> ~/redclaw
 cd ~/redclaw
 
-# 2. Create your .env file from the template
+# 2. Install system prerequisites (as admin — requires sudo)
+./prereqs.sh
+
+# 3. Switch to the standard bot user
+su - <bot-user>
+cd ~/redclaw    # or wherever you cloned it
+
+# 4. Create your .env file from the template
 cp .env.example .env
 
-# 3. Fill in all your API keys and settings
+# 5. Fill in all your API keys and settings
 nano .env    # or vim, or whatever you prefer
 
-# 4. Preview what will happen (recommended first time)
+# 6. Preview what will happen (recommended first time)
 ./setup.sh --dry-run
 
-# 5. Run the actual setup
+# 7. Run the actual setup
 ./setup.sh
 ```
 
-The script takes about 2-5 minutes. It will:
-- Install Node.js if missing
-- Install Openclaw globally
+The setup takes about 2-5 minutes. `prereqs.sh` installs system packages (Node.js, jq, curl, etc.) and `setup.sh` does the rest without sudo:
+- Install Openclaw to `~/.npm-global/`
 - Generate all config files from your `.env` values
-- Install 4 extensions (mem0, gmail, gcal, gdrive)
+- Install extensions (mem0)
 - Set up the systemd gateway service
 - Install cron jobs for backup, watchdog, and config rotation
 - Copy workspace files (personality, behavior, tools)
@@ -246,10 +259,10 @@ The script takes about 2-5 minutes. It will:
 | `BRAVE_SEARCH_KEY` | Yes | — | Brave Search key (starts with `BSA`) |
 | `VERCEL_AI_KEY` | Yes | — | Vercel AI Gateway key (starts with `vck_`) |
 
-#### Telegram
+#### Telegram (optional)
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | — | Token from @BotFather |
+| `TELEGRAM_BOT_TOKEN` | No | — | Token from @BotFather (leave blank to skip Telegram) |
 | `TELEGRAM_USER_ID` | No | — | Your numeric Telegram ID (for pairing) |
 
 #### Gateway
@@ -562,7 +575,7 @@ ls -la ~/<botname>-backups/
 ### Updating Openclaw
 
 ```bash
-sudo npm install -g openclaw@latest
+npm install -g --prefix ~/.npm-global openclaw@latest
 openclaw gateway restart
 openclaw doctor    # Verify everything still works
 ```
@@ -656,18 +669,21 @@ echo "ls /REMOTE_PATH/<botname>-backup-*.tar.gz" | \
 On a fresh machine with nothing installed:
 
 ```bash
-# 1. Install prerequisites (Node.js, git)
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
-sudo apt install -y nodejs git jq curl
-
-# 2. Clone the provisioning repo
+# 1. Clone the provisioning repo (as admin)
 git clone git@github.com:<your-org>/redclaw.git ~/redclaw
 
-# 3. Copy your .env file (from password manager, secure notes, etc.)
+# 2. Install system prerequisites (as admin)
+cd ~/redclaw && ./prereqs.sh
+
+# 3. Switch to standard bot user
+su - <bot-user>
+cd ~/redclaw
+
+# 4. Copy your .env file (from password manager, secure notes, etc.)
 cp /path/to/.env ~/redclaw/.env
 
-# 4. Run provisioning
-cd ~/redclaw && ./setup.sh
+# 5. Run provisioning
+./setup.sh
 
 # 5. Transfer a backup archive to the new machine
 scp user@old-host:~/<botname>-backups/<botname>-backup-*.tar.gz /tmp/
@@ -750,6 +766,21 @@ GOG_KEYRING_PASSWORD=<your-password> gog auth login --manual
 | "Not paired" error | `openclaw telegram pair` |
 | Bot responds very slowly | Primary model may be down — check fallback is working |
 
+### Configuring Telegram Later
+
+If you skipped Telegram during initial setup, you can add it later:
+
+1. Get a bot token from [@BotFather](https://t.me/BotFather) on Telegram
+2. Add `TELEGRAM_BOT_TOKEN=your-token-here` to your `.env` file
+3. Re-run `./setup.sh` — it will regenerate config with Telegram enabled
+4. Pair your account: `openclaw telegram pair`
+
+Alternatively, edit `~/.openclaw/openclaw.json` directly:
+- Set `channels.telegram.enabled` to `true`
+- Set `channels.telegram.botToken` to your token
+- Set `plugins.entries.telegram.enabled` to `true`
+- Restart the gateway: `openclaw gateway restart`
+
 ### Config Issues
 
 | Symptom | Fix |
@@ -765,7 +796,8 @@ GOG_KEYRING_PASSWORD=<your-password> gog auth login --manual
 ```
 ~/redclaw/
 ├── README.md                          # This file
-├── setup.sh                           # Main provisioning script
+├── prereqs.sh                         # System prerequisites (run as admin)
+├── setup.sh                           # Main provisioning script (run as bot user)
 ├── .env.example                       # Secret template (copy to .env)
 ├── .gitignore                         # Excludes .env from version control
 │
