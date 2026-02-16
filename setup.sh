@@ -396,6 +396,15 @@ fi
 
 step "Setting up systemd service"
 
+# Ensure systemd user session variables are set (needed after loginctl enable-linger
+# when the current shell predates the user manager starting)
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
+
 SYSTEMD_DIR="${HOME_DIR}/.config/systemd/user"
 run mkdir -p "$SYSTEMD_DIR"
 
@@ -409,6 +418,7 @@ if ! $DRY_RUN; then
     else
         warn "systemd user services unavailable — skipping service enable"
         warn "You may need to enable lingering: sudo loginctl enable-linger ${BOT_USER}"
+        warn "Then log out and back in so the systemd user manager starts"
     fi
 fi
 
@@ -503,11 +513,13 @@ if ! $DRY_RUN; then
         warn "Could not start gateway via systemd — start manually with: openclaw gateway up"
     fi
 
-    # Run doctor (with timeout — it can hang if gateway is unreachable)
-    if timeout 15 openclaw doctor &>/dev/null; then
-        ok "openclaw doctor: passed"
-    else
-        warn "openclaw doctor did not pass — run it manually after starting the gateway"
+    # Run doctor (skip if gateway didn't start — it hangs without a running gateway)
+    if systemctl --user is-active openclaw-gateway.service &>/dev/null; then
+        if timeout --kill-after=5 15 openclaw doctor &>/dev/null; then
+            ok "openclaw doctor: passed"
+        else
+            warn "openclaw doctor did not pass — run it manually: openclaw doctor"
+        fi
     fi
 else
     echo "  [dry-run] Would start openclaw-gateway.service and verify health"
