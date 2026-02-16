@@ -61,27 +61,31 @@ fi
 # Disk usage
 echo ""
 echo "Storage:"
-echo "  Openclaw: $(du -sh ~/.openclaw 2>/dev/null | cut -f1)"
-echo "  Backups: $(du -sh ~/${BOT_NAME_LOWER}-backups 2>/dev/null | cut -f1 || echo 'N/A')"
-echo "  Available: $(df -h ~ | tail -1 | awk '{print $4}')"
+OPENCLAW_DIR="${HOME}/.openclaw"
+echo "  Openclaw: $(du -sh "$OPENCLAW_DIR" 2>/dev/null | cut -f1)"
+echo "  Backups: $(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo 'N/A')"
+echo "  Available: $(df -h "${HOME}" | tail -1 | awk '{print $4}')"
 
 # Config integrity
 echo ""
 echo "Config:"
-if [ -f ~/.openclaw/openclaw.json ]; then
-    PERMS=$(stat -c %a ~/.openclaw/openclaw.json)
+CONFIG_FILE="${OPENCLAW_DIR}/openclaw.json"
+if [ -f "$CONFIG_FILE" ]; then
+    PERMS=$(stat -c %a "$CONFIG_FILE" 2>/dev/null)
     if [ "$PERMS" = "600" ]; then
         echo "  ✓ Permissions: $PERMS (secure)"
     else
         echo "  ⚠ Permissions: $PERMS (should be 600)"
     fi
 
-    TOKEN=$(jq -r '.gateway.auth.token // empty' ~/.openclaw/openclaw.json 2>/dev/null)
+    TOKEN=$(jq -r '.gateway.auth.token // empty' "$CONFIG_FILE" 2>/dev/null)
     if [ -n "$TOKEN" ]; then
-        echo "  Token length: ${#TOKEN} chars"
+        echo "  ✓ Token length: ${#TOKEN} chars"
     else
         echo "  ⚠ No gateway token found"
     fi
+else
+    echo "  ✗ Config file not found: $CONFIG_FILE"
 fi
 
 echo ""
