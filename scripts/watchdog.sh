@@ -8,6 +8,10 @@ RESTART_TRACKER="/tmp/${BOT_NAME_LOWER}-watchdog-restarts"
 MAX_RESTARTS_PER_HOUR=3
 SERVICE="openclaw-gateway.service"
 
+# --- Environment for cron (systemctl --user needs D-Bus, openclaw needs PATH) ---
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+export PATH="$HOME/.npm-global/bin:$PATH"
+
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
 }
@@ -62,7 +66,7 @@ health_check_http() {
 
 # Check if the systemd service is in a failed state
 service_is_failed() {
-    systemctl --user is-failed --quiet "$SERVICE" 2>/dev/null
+    systemctl --user is-failed --quiet "$SERVICE"
     return $?
 }
 
@@ -73,9 +77,12 @@ if service_is_failed; then
     log "[WARN] Service is in failed state"
     if check_restart_limit; then
         log "[ACTION] Resetting failed state and starting service"
-        systemctl --user reset-failed "$SERVICE" 2>/dev/null
-        systemctl --user start "$SERVICE" 2>/dev/null
-        record_restart
+        systemctl --user reset-failed "$SERVICE"
+        if systemctl --user start "$SERVICE"; then
+            record_restart
+        else
+            log "[ERROR] systemctl --user start failed (exit $?)"
+        fi
         sleep 5
         if health_check_http; then
             log "[OK] Service recovered after reset-failed + start"
@@ -104,14 +111,17 @@ fi
 log "[ALERT] Gateway is unhealthy (both CLI and HTTP checks failed)"
 
 # Check systemd service state for diagnostics
-svc_state=$(systemctl --user show -p ActiveState --value "$SERVICE" 2>/dev/null)
-svc_sub=$(systemctl --user show -p SubState --value "$SERVICE" 2>/dev/null)
+svc_state=$(systemctl --user show -p ActiveState --value "$SERVICE")
+svc_sub=$(systemctl --user show -p SubState --value "$SERVICE")
 log "[DIAG] Service state: $svc_state/$svc_sub"
 
 if check_restart_limit; then
     log "[ACTION] Restarting $SERVICE"
-    systemctl --user restart "$SERVICE" 2>/dev/null
-    record_restart
+    if systemctl --user restart "$SERVICE"; then
+        record_restart
+    else
+        log "[ERROR] systemctl --user restart failed (exit $?)"
+    fi
 
     # Wait for startup and verify
     sleep 8
