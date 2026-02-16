@@ -44,7 +44,7 @@ Add whatever helps you do your job. This is your cheat sheet.
 
 **Strategy:**
 - **Never parallelize searches** — sequential only
-- Batch topics when possible: "US news Denver weather Arsenal" > 3 separate calls
+- Batch topics when possible: "US news local weather sports" > 3 separate calls
 - Prefer `web_fetch` over `web_search` for known URLs
 - Consider 1-2 second delays between multiple searches
 

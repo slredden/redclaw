@@ -59,7 +59,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # Load .env safely — auto-quote unquoted values so spaces don't break sourcing
-# (e.g. USER_NAME=Stephen Redden → USER_NAME="Stephen Redden")
+# (e.g. USER_NAME=Wade Watts → USER_NAME="Wade Watts")
 _safe_env=$(mktemp)
 while IFS= read -r line || [[ -n "$line" ]]; do
     # Pass through blank lines and comments
@@ -245,6 +245,12 @@ run mkdir -p "${HOME_DIR}/.openclaw"
 run mkdir -p "${HOME_DIR}/.openclaw/agents/main/agent"
 run mkdir -p "${HOME_DIR}/.openclaw/credentials"
 run mkdir -p "${HOME_DIR}/.openclaw/cron"
+
+# Set strict permissions on sensitive directories
+if ! $DRY_RUN; then
+    chmod 700 "${HOME_DIR}/.openclaw"
+    chmod 700 "${HOME_DIR}/.openclaw/credentials"
+fi
 
 # Main config
 render_template "${SCRIPT_DIR}/templates/openclaw.json.tmpl" "${HOME_DIR}/.openclaw/openclaw.json"
@@ -488,7 +494,7 @@ export PATH="\${HOME}/.npm-global/bin:\${PATH}"
 
 # Openclaw completions
 if command -v openclaw &> /dev/null; then
-    eval "\$(openclaw completion bash)"
+    eval "\$(openclaw completion)"
 fi
 
 # Don't log secrets in history

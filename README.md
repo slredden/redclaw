@@ -239,7 +239,7 @@ The setup takes about 2-5 minutes. `prereqs.sh` installs system packages (Node.j
 #### Bot Identity
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BOT_NAME` | Yes | — | Display name for your bot (e.g., "RedBot", "Jarvis"). Used in dashboard, workspace |
+| `BOT_NAME` | Yes | — | Display name for your bot (e.g., "Jarvis", "Alfred"). Used in dashboard, workspace |
 | `BOT_USER` | Yes | — | Linux username the bot runs as |
 | `BOT_EMOJI` | Yes | — | Emoji used in identity file and dashboard |
 
