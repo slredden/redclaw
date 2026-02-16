@@ -228,13 +228,11 @@ else
     fi
 fi
 
-# Run onboarding (headless)
-if [ ! -d "${HOME_DIR}/.openclaw" ]; then
-    step "Running Openclaw onboarding"
-    run openclaw onboard --install-daemon
-else
-    ok "Openclaw already onboarded (~/.openclaw exists)"
-fi
+# Skip interactive onboarding — our config generation handles everything.
+# Just create the directory structure that onboarding would create.
+run mkdir -p "${HOME_DIR}/.openclaw/workspace"
+run mkdir -p "${HOME_DIR}/.openclaw/agents/main/sessions"
+ok "Openclaw directory structure created"
 
 # ============================================================================
 # CONFIGURATION
@@ -288,7 +286,15 @@ for ext in "${EXTENSIONS[@]}"; do
         ok "${ext_name}: already installed"
     else
         info "Installing ${ext_name}..."
-        run openclaw plugins install "$ext"
+        if ! run openclaw plugins install "$ext" 2>/dev/null; then
+            warn "${ext_name}: install failed — removing from config"
+            # Remove plugin references so config stays valid
+            jq 'del(.plugins.entries["openclaw-mem0"]) |
+                if .plugins.slots.memory == "openclaw-mem0" then del(.plugins.slots.memory) else . end' \
+                "${HOME_DIR}/.openclaw/openclaw.json" > "${HOME_DIR}/.openclaw/openclaw.json.tmp" \
+                && mv "${HOME_DIR}/.openclaw/openclaw.json.tmp" "${HOME_DIR}/.openclaw/openclaw.json"
+            chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
+        fi
     fi
 done
 
@@ -397,9 +403,13 @@ render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
     "${SYSTEMD_DIR}/openclaw-gateway.service"
 
 if ! $DRY_RUN; then
-    systemctl --user daemon-reload
-    systemctl --user enable openclaw-gateway.service
-    ok "openclaw-gateway.service enabled"
+    if systemctl --user daemon-reload 2>/dev/null; then
+        systemctl --user enable openclaw-gateway.service
+        ok "openclaw-gateway.service enabled"
+    else
+        warn "systemd user services unavailable — skipping service enable"
+        warn "You may need to enable lingering: sudo loginctl enable-linger ${BOT_USER}"
+    fi
 fi
 
 # ============================================================================
@@ -477,15 +487,18 @@ fi
 step "Starting gateway"
 
 if ! $DRY_RUN; then
-    systemctl --user start openclaw-gateway.service || true
-    info "Waiting for gateway startup..."
-    sleep 5
+    if systemctl --user start openclaw-gateway.service 2>/dev/null; then
+        info "Waiting for gateway startup..."
+        sleep 5
 
-    if openclaw health --timeout 15000 &>/dev/null; then
-        ok "Gateway is healthy"
+        if openclaw health --timeout 15000 &>/dev/null; then
+            ok "Gateway is healthy"
+        else
+            warn "Gateway health check failed — it may still be starting up"
+            warn "Try: openclaw health (in a minute)"
+        fi
     else
-        warn "Gateway health check failed — it may still be starting up"
-        warn "Try: openclaw health (in a minute)"
+        warn "Could not start gateway via systemd — start manually with: openclaw gateway up"
     fi
 
     # Run doctor if available
