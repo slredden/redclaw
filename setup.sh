@@ -503,9 +503,11 @@ if ! $DRY_RUN; then
         warn "Could not start gateway via systemd — start manually with: openclaw gateway up"
     fi
 
-    # Run doctor if available
-    if openclaw doctor &>/dev/null; then
+    # Run doctor (with timeout — it can hang if gateway is unreachable)
+    if timeout 15 openclaw doctor &>/dev/null; then
         ok "openclaw doctor: passed"
+    else
+        warn "openclaw doctor did not pass — run it manually after starting the gateway"
     fi
 else
     echo "  [dry-run] Would start openclaw-gateway.service and verify health"
