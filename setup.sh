@@ -58,8 +58,34 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
+# Load .env safely — auto-quote unquoted values so spaces don't break sourcing
+# (e.g. USER_NAME=Stephen Redden → USER_NAME="Stephen Redden")
+_safe_env=$(mktemp)
+while IFS= read -r line || [[ -n "$line" ]]; do
+    # Pass through blank lines and comments
+    if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+        echo "$line" >> "$_safe_env"
+        continue
+    fi
+    # Extract key and raw value
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*) ]]; then
+        key="${BASH_REMATCH[1]}"
+        raw="${BASH_REMATCH[2]}"
+        # Already quoted — pass through as-is
+        if [[ "$raw" =~ ^\".*\" ]] || [[ "$raw" =~ ^\'.*\' ]]; then
+            echo "${key}=${raw}" >> "$_safe_env"
+        else
+            # Strip inline comment (# preceded by whitespace) and trim
+            val=$(echo "$raw" | sed 's/[[:space:]]\+#.*$//; s/[[:space:]]*$//')
+            echo "${key}=\"${val}\"" >> "$_safe_env"
+        fi
+    else
+        echo "$line" >> "$_safe_env"
+    fi
+done < "$ENV_FILE"
 # shellcheck disable=SC1090
-source "$ENV_FILE"
+source "$_safe_env"
+rm -f "$_safe_env"
 
 # --- Validate required variables ---
 REQUIRED_VARS=(
@@ -98,8 +124,8 @@ if [ -z "${GATEWAY_TOKEN:-}" ]; then
 fi
 export GATEWAY_TOKEN
 
-# Derive lowercase bot name
-BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]')
+# Derive lowercase bot name (spaces → hyphens for use in paths/identifiers)
+BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 export BOT_NAME_LOWER
 
 if $DRY_RUN; then
