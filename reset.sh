@@ -135,7 +135,7 @@ info "Removing cron jobs..."
 
 if crontab -l &>/dev/null; then
     BEFORE=$(crontab -l 2>/dev/null)
-    AFTER=$(echo "$BEFORE" | grep -vF "backup.sh" | grep -vF "rotate-config.sh" | grep -vF "watchdog.sh")
+    AFTER=$(echo "$BEFORE" | grep -vF "backup.sh" | grep -vF "rotate-config.sh" | grep -vF "watchdog.sh" || true)
     if [ "$BEFORE" != "$AFTER" ]; then
         if $DRY_RUN; then
             echo -e "  ${YELLOW}[dry-run]${NC} Would remove cron entries for backup.sh, rotate-config.sh, watchdog.sh"

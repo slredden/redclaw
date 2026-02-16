@@ -422,13 +422,15 @@ step "Setting up cron jobs"
 add_cron_if_missing() {
     local pattern="$1"
     local entry="$2"
-    if crontab -l 2>/dev/null | grep -qF "$pattern"; then
+    local existing
+    existing=$(crontab -l 2>/dev/null || true)
+    if echo "$existing" | grep -qF "$pattern"; then
         ok "Cron: '$pattern' already present"
     else
         if $DRY_RUN; then
             echo "  [dry-run] Would add cron: $entry"
         else
-            (crontab -l 2>/dev/null; echo "$entry") | crontab -
+            (echo "$existing"; echo "$entry") | crontab -
             ok "Cron: added '$pattern'"
         fi
     fi
