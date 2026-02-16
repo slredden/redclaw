@@ -1,18 +1,20 @@
 #!/bin/bash
 
+# Set up PATH for openclaw commands
+export PATH="${HOME}/.npm-global/bin:${PATH}"
+
 echo "╔════════════════════════════════════════╗"
 echo "║       ${BOT_NAME} Status Dashboard          ║"
 echo "╚════════════════════════════════════════╝"
 echo ""
 
-# Gateway process status (use systemd as source of truth)
-GW_PID=$(systemctl --user show openclaw-gateway.service -p MainPID --value 2>/dev/null)
-GW_STATE=$(systemctl --user show openclaw-gateway.service -p ActiveState --value 2>/dev/null)
-if [ "$GW_STATE" = "active" ] && [ "$GW_PID" != "0" ]; then
+# Gateway process status
+GW_PID=$(pgrep -f "openclaw gateway" 2>/dev/null | head -1)
+if [ -n "$GW_PID" ]; then
     UPTIME=$(ps -p "$GW_PID" -o etime= 2>/dev/null | tr -d ' ')
     echo "✓ Gateway: RUNNING (PID: $GW_PID, Uptime: $UPTIME)"
 else
-    echo "✗ Gateway: $GW_STATE"
+    echo "✗ Gateway: NOT RUNNING"
 fi
 
 # Health probe
@@ -26,11 +28,14 @@ else
 fi
 
 # Watchdog status
-if crontab -l 2>/dev/null | grep -q "${BOT_NAME_LOWER}-watchdog"; then
-    LAST_RESTART=$(tail -1 /home/${BOT_USER}/${BOT_NAME_LOWER}-watchdog.log 2>/dev/null)
+if crontab -l 2>/dev/null | grep -q "watchdog.sh"; then
+    WATCHDOG_LOG="/home/${BOT_USER}/${BOT_NAME_LOWER}-watchdog.log"
     echo "  ✓ Watchdog: active (cron every 5m)"
-    if [ -n "$LAST_RESTART" ]; then
-        echo "  Last log: $LAST_RESTART"
+    if [ -f "$WATCHDOG_LOG" ]; then
+        LAST_RESTART=$(tail -1 "$WATCHDOG_LOG" 2>/dev/null)
+        if [ -n "$LAST_RESTART" ]; then
+            echo "    Last log: $LAST_RESTART"
+        fi
     fi
 else
     echo "  ⚠ Watchdog: not installed"
@@ -39,13 +44,18 @@ fi
 # Backup status
 echo ""
 echo "Backups:"
-BACKUP_COUNT=$(find ~/${BOT_NAME_LOWER}-backups -type d -name "auto-*" 2>/dev/null | wc -l)
-if [ "$BACKUP_COUNT" -gt 0 ]; then
-    LATEST=$(ls -td ~/${BOT_NAME_LOWER}-backups/auto-* 2>/dev/null | head -1 | xargs basename)
-    echo "  Count: $BACKUP_COUNT"
-    echo "  Latest: $LATEST"
+BACKUP_DIR="${HOME}/${BOT_NAME_LOWER}-backups"
+if [ -d "$BACKUP_DIR" ]; then
+    BACKUP_COUNT=$(find "$BACKUP_DIR" -type d -name "auto-*" 2>/dev/null | wc -l)
+    if [ "${BACKUP_COUNT:-0}" -gt 0 ]; then
+        LATEST=$(ls -td "$BACKUP_DIR"/auto-* 2>/dev/null | head -1 | xargs basename)
+        echo "  Count: $BACKUP_COUNT"
+        echo "  Latest: $LATEST"
+    else
+        echo "  ⚠ No automated backups found (directory exists but empty)"
+    fi
 else
-    echo "  ⚠ No automated backups found"
+    echo "  ⚠ Backup directory not created yet (~/${BOT_NAME_LOWER}-backups)"
 fi
 
 # Disk usage
