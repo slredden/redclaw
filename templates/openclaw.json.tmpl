@@ -36,9 +36,9 @@
             "maxTokens": 16384
           },
           {
-            "id": "mistralai/mistral-large-3-675b-instruct-2512",
-            "name": "Mistral Large 3 675B",
-            "reasoning": false,
+            "id": "qwen/qwen3-235b-a22b",
+            "name": "Qwen3 235B",
+            "reasoning": true,
             "input": [
               "text"
             ],
@@ -76,15 +76,15 @@
       "model": {
         "primary": "nvidia/moonshotai/kimi-k2.5",
         "fallbacks": [
-          "nvidia/mistralai/mistral-large-3-675b-instruct-2512"
+          "nvidia/qwen/qwen3-235b-a22b"
         ]
       },
       "models": {
         "nvidia/moonshotai/kimi-k2.5": {
           "alias": "Kimi K2.5 (Nvidia)"
         },
-        "nvidia/mistralai/mistral-large-3-675b-instruct-2512": {
-          "alias": "Mistral Large 3 (Nvidia)"
+        "nvidia/qwen/qwen3-235b-a22b": {
+          "alias": "Qwen3 235B (Nvidia)"
         },
         "nvidia/minimaxai/minimax-m2.1": {
           "alias": "MiniMax M2.1 (Nvidia)"
