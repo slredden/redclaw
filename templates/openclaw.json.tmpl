@@ -36,9 +36,9 @@
             "maxTokens": 16384
           },
           {
-            "id": "nvidia/nemotron-3-nano-30b-a3b",
-            "name": "Nemotron 3 Nano 30B",
-            "reasoning": true,
+            "id": "mistralai/mistral-large-3-675b-instruct-2512",
+            "name": "Mistral Large 3 675B",
+            "reasoning": false,
             "input": [
               "text"
             ],
@@ -48,7 +48,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 1048576,
+            "contextWindow": 131072,
             "maxTokens": 16384
           },
           {
@@ -76,15 +76,15 @@
       "model": {
         "primary": "nvidia/moonshotai/kimi-k2.5",
         "fallbacks": [
-          "nvidia/nvidia/nemotron-3-nano-30b-a3b"
+          "nvidia/mistralai/mistral-large-3-675b-instruct-2512"
         ]
       },
       "models": {
         "nvidia/moonshotai/kimi-k2.5": {
           "alias": "Kimi K2.5 (Nvidia)"
         },
-        "nvidia/nvidia/nemotron-3-nano-30b-a3b": {
-          "alias": "Nemotron 3 Nano (Nvidia)"
+        "nvidia/mistralai/mistral-large-3-675b-instruct-2512": {
+          "alias": "Mistral Large 3 (Nvidia)"
         },
         "nvidia/minimaxai/minimax-m2.1": {
           "alias": "MiniMax M2.1 (Nvidia)"
