@@ -34,7 +34,14 @@
             },
             "contextWindow": 131072,
             "maxTokens": 16384
-          },
+          }
+        ]
+      },
+      "nvidia-fallback": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "${NVIDIA_API_KEY}",
+        "api": "openai-completions",
+        "models": [
           {
             "id": "qwen/qwen3.5-397b-a17b",
             "name": "Qwen3.5 397B",
@@ -50,7 +57,14 @@
             },
             "contextWindow": 131072,
             "maxTokens": 16384
-          },
+          }
+        ]
+      },
+      "nvidia-subagents": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "${NVIDIA_API_KEY}",
+        "api": "openai-completions",
+        "models": [
           {
             "id": "minimaxai/minimax-m2.1",
             "name": "MiniMax M2.1",
@@ -76,17 +90,17 @@
       "model": {
         "primary": "nvidia/moonshotai/kimi-k2.5",
         "fallbacks": [
-          "nvidia/qwen/qwen3.5-397b-a17b"
+          "nvidia-fallback/qwen/qwen3.5-397b-a17b"
         ]
       },
       "models": {
         "nvidia/moonshotai/kimi-k2.5": {
           "alias": "Kimi K2.5 (Nvidia)"
         },
-        "nvidia/qwen/qwen3.5-397b-a17b": {
+        "nvidia-fallback/qwen/qwen3.5-397b-a17b": {
           "alias": "Qwen3.5 397B (Nvidia)"
         },
-        "nvidia/minimaxai/minimax-m2.1": {
+        "nvidia-subagents/minimaxai/minimax-m2.1": {
           "alias": "MiniMax M2.1 (Nvidia)"
         }
       },
@@ -96,7 +110,7 @@
       },
       "maxConcurrent": 4,
       "subagents": {
-        "model": "nvidia/minimaxai/minimax-m2.1",
+        "model": "nvidia-subagents/minimaxai/minimax-m2.1",
         "maxConcurrent": 8
       }
     }
