@@ -512,8 +512,10 @@ fi
 
 step "Starting gateway"
 
+SYSTEMD_WORKING=false
 if ! $DRY_RUN; then
     if systemctl --user start openclaw-gateway.service 2>/dev/null; then
+        SYSTEMD_WORKING=true
         info "Waiting for gateway startup..."
         sleep 5
 
@@ -570,42 +572,56 @@ echo "  ~/status.sh              # Full dashboard"
 echo "  crontab -l               # Cron jobs"
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║              Interactive Steps (do manually)              ║"
+echo "║              Next Steps (Complete Manually)               ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "0. FIRST: Reload your shell so 'openclaw' and 'gog' commands work:"
+echo "1. FIRST: Reload your shell to activate 'openclaw' and 'gog' commands:"
 echo "   source ~/.bashrc"
 echo ""
-echo "1. Start the gateway manually (systemd user services unavailable):"
-echo "   openclaw gateway up &"
-echo "   (or in a new terminal/tmux: openclaw gateway up)"
+echo "2. Access the Openclaw Dashboard:"
+echo "   http://127.0.0.1:${GATEWAY_PORT}/?token=${GATEWAY_TOKEN}"
 echo ""
-echo "2. Google OAuth Setup (via gog):"
-echo "   - Place your Google Cloud client secret at:"
-echo "     ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
-echo "   - Import credentials and authenticate:"
-echo "     gog auth credentials set ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
-echo "     gog auth keyring file"
-echo "     gog auth add ${USER_EMAIL} --remote --step 1 --services gmail,calendar,drive,contacts,sheets,docs"
-echo "     # Open the URL in a browser, grant access, then:"
-echo "     gog auth add ${USER_EMAIL} --manual --auth-url '<paste redirect URL>'"
+echo "   ⚠️  IMPORTANT: Bookmark this URL or save it in your password manager!"
+echo "   Without the token parameter, you'll need to enter it manually each time."
 echo ""
+if ! $SYSTEMD_WORKING; then
+    echo "3. Start the Gateway (systemd user services unavailable):"
+    echo "   openclaw gateway up &"
+    echo "   (or in a new terminal/tmux: openclaw gateway up)"
+    echo ""
+    NEXT_STEP=4
+else
+    NEXT_STEP=3
+fi
+echo "${NEXT_STEP}. Google Workspace OAuth Setup (via gog):"
+echo "   a) Place your Google Cloud client secret file:"
+echo "      cp ~/Downloads/client_secret_*.json ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
+echo ""
+echo "   b) Import credentials and authenticate:"
+echo "      gog auth credentials set ${HOME_DIR}/.openclaw/credentials/gmail-client-secret.json"
+echo "      gog auth keyring file"
+echo "      gog auth add ${USER_EMAIL} --remote --step 1 --services gmail,calendar,drive,contacts,sheets,docs"
+echo ""
+echo "   c) Open the auth URL in your browser, grant access, then:"
+echo "      gog auth add ${USER_EMAIL} --manual --auth-url '<paste redirect URL here>'"
+echo ""
+NEXT_STEP=$((NEXT_STEP + 1))
 if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
-    echo "3. Telegram Pairing:"
-    echo "   - Open Telegram and message your bot (@BotFather token already configured)"
+    echo "${NEXT_STEP}. Telegram Bot Pairing:"
+    echo "   - Open Telegram and send any message to your bot"
     echo "   - Run: openclaw telegram pair"
     echo "   - Follow the pairing instructions"
     echo ""
-    echo "4. Test everything:"
+    NEXT_STEP=$((NEXT_STEP + 1))
 else
-    echo "3. Telegram (skipped -- no TELEGRAM_BOT_TOKEN in .env):"
-    echo "   - To add Telegram later, set TELEGRAM_BOT_TOKEN in .env and re-run setup.sh"
+    echo "${NEXT_STEP}. Telegram (skipped -- no TELEGRAM_BOT_TOKEN in .env)"
+    echo "   To add later: set TELEGRAM_BOT_TOKEN in .env and re-run setup.sh"
     echo ""
-    echo "4. Test everything:"
+    NEXT_STEP=$((NEXT_STEP + 1))
 fi
+echo "${NEXT_STEP}. Verify Everything Works:"
 echo "   gog gmail search 'newer_than:1d' --max 5 --json"
 echo "   gog calendar list --json"
-echo "   gog drive ls --json"
 echo "   openclaw health"
 echo "   ~/status.sh"
 echo ""
