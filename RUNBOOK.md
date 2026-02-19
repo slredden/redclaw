@@ -112,6 +112,9 @@ Use the next available port in the 18789+ range (see Port Allocation below).
 
 ### 4. Log in as bot2 and run setup.sh
 
+Each bot user has their own copy of the repo at `~/redbot-provision/` and their
+own `.env` — all values are independent (separate bot name, email, API keys, port).
+
 ```bash
 ssh botname2@localhost
 cd ~/redbot-provision
@@ -119,6 +122,14 @@ cp .env.example .env
 nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all other values
 ./setup.sh
 ```
+
+### 5. Complete manual steps
+
+Same as First Server Setup step 5:
+- Google OAuth via gog (place client secret, run `gog auth add`)
+- Telegram pairing (if configured)
+- Reload shell: `source ~/.bashrc`
+- Verify: `openclaw health` and `~/status.sh`
 
 ---
 

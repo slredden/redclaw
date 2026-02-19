@@ -260,6 +260,13 @@ echo "  2. Set up the environment:"
 echo "     cd ~/redbot-provision"
 echo "     cp .env.example .env"
 echo "     nano .env"
+if $SKIP_SYSTEM; then
+echo ""
+echo "     NOTE: This is an additional bot user on an existing server."
+echo "     GATEWAY_PORT must be unique — check what's in use first:"
+echo "       ss -tuln | grep 187"
+echo "     Then set a different port (e.g., 18790, 18791, ...) in .env."
+fi
 echo ""
 echo "  3. Run the setup script:"
 echo "     ./setup.sh"
