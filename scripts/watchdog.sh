@@ -8,9 +8,9 @@ RESTART_TRACKER="/tmp/${BOT_NAME_LOWER}-watchdog-restarts"
 MAX_RESTARTS_PER_HOUR=3
 SERVICE="openclaw-gateway.service"
 
-# --- Environment for cron (systemctl --user needs D-Bus, openclaw needs PATH) ---
+# --- Environment for cron (systemctl --user needs D-Bus) ---
+# openclaw is system-wide at /usr/bin/openclaw — no npm-global PATH needed
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
-export PATH="$HOME/.npm-global/bin:$PATH"
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"

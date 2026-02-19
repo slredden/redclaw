@@ -65,7 +65,7 @@ if ! $DRY_RUN; then
     echo ""
     echo "  The following will be deleted:"
     echo "    ~/.openclaw/            (config, workspace, sessions, credentials)"
-    echo "    ~/.npm-global/          (openclaw, gog, and all npm globals)"
+    echo "    ~/.npm-global/          (gog and other user-local binaries)"
     echo "    ~/backup.sh, ~/watchdog.sh, ~/status.sh"
     echo "    ~/.config/systemd/user/openclaw-gateway.service"
     echo "    Cron jobs for backup, watchdog, and rotate-config"
@@ -177,14 +177,18 @@ else
 fi
 
 # ============================================================================
-# 6. Remove npm globals (openclaw, gog, and everything in ~/.npm-global)
+# 6. Remove user-local binaries (~/.npm-global: gog and other per-user tools)
+#
+# NOTE: Openclaw itself is installed system-wide (sudo npm install -g openclaw)
+# and is NOT removed here. To uninstall system Openclaw, an admin must run:
+#   sudo npm uninstall -g openclaw
 # ============================================================================
 
-info "Removing npm global packages..."
+info "Removing user-local binaries (~/.npm-global)..."
 
 if [ -d "${HOME_DIR}/.npm-global" ]; then
     run rm -rf "${HOME_DIR}/.npm-global"
-    ok "Removed ~/.npm-global/"
+    ok "Removed ~/.npm-global/ (gog and other per-user tools)"
 else
     ok "~/.npm-global/ not found"
 fi
@@ -254,5 +258,9 @@ if $DRY_RUN; then
     echo -e "${YELLOW}Dry run complete — no changes were made.${NC}"
 else
     echo -e "${GREEN}Reset complete.${NC} You can now re-run setup.sh for a fresh install."
+    echo ""
+    echo "Note: System-wide Openclaw (/usr/lib/node_modules/openclaw) was NOT removed."
+    echo "      Other bot users on this server are unaffected."
+    echo "      To remove Openclaw entirely (affects ALL users): sudo npm uninstall -g openclaw"
 fi
 echo ""

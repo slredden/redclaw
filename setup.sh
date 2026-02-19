@@ -210,26 +210,27 @@ if $PREREQ_MISSING; then
 fi
 
 # ============================================================================
-# OPENCLAW INSTALLATION
+# VERIFY OPENCLAW (system-wide install — done by admin via prereqs.sh)
 # ============================================================================
+#
+# Openclaw is installed system-wide by prereqs.sh (sudo npm install -g openclaw).
+# Each user shares the same binary at /usr/bin/openclaw but has separate config
+# at ~/.openclaw/ and a separate gateway process via systemd --user.
+#
+# To update Openclaw: sudo npm install -g openclaw@latest
+#   (Do NOT use 'openclaw update' — it does not work for npm installs)
 
-step "Installing Openclaw"
-
-# Ensure user-local npm prefix is on PATH
-NPM_GLOBAL="${HOME_DIR}/.npm-global"
-export PATH="${NPM_GLOBAL}/bin:${PATH}"
+step "Verifying Openclaw (system-wide install)"
 
 if command -v openclaw &> /dev/null; then
-    ok "Openclaw already installed: $(openclaw --version 2>/dev/null | head -1)"
+    ok "Openclaw: $(openclaw --version 2>/dev/null | head -1) ($(which openclaw))"
 else
-    run npm install -g --prefix "${NPM_GLOBAL}" openclaw@latest
-    if ! $DRY_RUN; then
-        ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
-    fi
+    err "Openclaw not found. Run prereqs.sh as admin first:"
+    err "  sudo npm install -g openclaw@latest"
+    exit 1
 fi
 
-# Skip interactive onboarding — our config generation handles everything.
-# Just create the directory structure that onboarding would create.
+# Create the directory structure that onboarding would normally create.
 run mkdir -p "${HOME_DIR}/.openclaw/workspace"
 run mkdir -p "${HOME_DIR}/.openclaw/agents/main/sessions"
 ok "Openclaw directory structure created"
@@ -351,7 +352,7 @@ render_template "${SCRIPT_DIR}/workspace/USER.md.tmpl" "${WORKSPACE}/USER.md"
 render_template "${SCRIPT_DIR}/workspace/IDENTITY.md.tmpl" "${WORKSPACE}/IDENTITY.md"
 
 # Copy static files (only if not already present, to preserve customizations)
-for file in SOUL.md AGENTS.md TOOLS.md HEARTBEAT.md; do
+for file in SOUL.md AGENTS.md HEARTBEAT.md; do
     if [ ! -f "${WORKSPACE}/${file}" ]; then
         run cp "${SCRIPT_DIR}/workspace/${file}" "${WORKSPACE}/${file}"
         ok "${file}: copied"
@@ -359,6 +360,14 @@ for file in SOUL.md AGENTS.md TOOLS.md HEARTBEAT.md; do
         ok "${file}: already exists (preserved)"
     fi
 done
+
+# Render TOOLS.md from template (only if not already present, to preserve customizations)
+if [ ! -f "${WORKSPACE}/TOOLS.md" ]; then
+    render_template "${SCRIPT_DIR}/workspace/TOOLS.md.tmpl" "${WORKSPACE}/TOOLS.md"
+    ok "TOOLS.md: rendered from template"
+else
+    ok "TOOLS.md: already exists (preserved)"
+fi
 
 # Copy skills
 if [ -d "${SCRIPT_DIR}/workspace/skills/" ]; then
@@ -416,6 +425,22 @@ run mkdir -p "$SYSTEMD_DIR"
 
 render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
     "${SYSTEMD_DIR}/openclaw-gateway.service"
+
+if ! $DRY_RUN; then
+    chmod 700 "$SYSTEMD_DIR"
+    chmod 600 "${SYSTEMD_DIR}/openclaw-gateway.service"
+    ok "openclaw-gateway.service: permissions set to 600"
+
+    # Port conflict check — each bot user needs a unique GATEWAY_PORT
+    if ss -tuln 2>/dev/null | grep -q ":${GATEWAY_PORT} " || \
+       lsof -i ":${GATEWAY_PORT}" &>/dev/null 2>&1; then
+        warn "Port ${GATEWAY_PORT} is already in use on this server!"
+        warn "Another user's gateway may already be running on this port."
+        warn "Set a different GATEWAY_PORT in .env (e.g., 18790, 18791, ...)"
+        err "Aborting — cannot bind gateway on port ${GATEWAY_PORT}"
+        exit 1
+    fi
+fi
 
 if ! $DRY_RUN; then
     # Test systemd --user access with detailed diagnostics
@@ -489,10 +514,10 @@ if ! grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
         cat >> "$BASHRC" <<EOF
 
 ${MARKER}
-# User-local npm global bin
+# User-local bin (gog and other per-user tools)
 export PATH="\${HOME}/.npm-global/bin:\${PATH}"
 
-# Openclaw completions
+# Openclaw completions (openclaw is system-wide at /usr/bin/openclaw)
 if command -v openclaw &> /dev/null; then
     eval "\$(openclaw completion)"
 fi
@@ -561,7 +586,7 @@ echo "  Gateway:   http://127.0.0.1:${GATEWAY_PORT}"
 echo "  Config:    ${HOME_DIR}/.openclaw/openclaw.json"
 echo "  Workspace: ${HOME_DIR}/.openclaw/workspace/"
 echo ""
-echo "IMPORTANT: Reload your shell to use 'openclaw' commands:"
+echo "IMPORTANT: Reload your shell to activate shell completions and gog:"
 echo "  source ~/.bashrc"
 echo "  (or log out and back in)"
 echo ""

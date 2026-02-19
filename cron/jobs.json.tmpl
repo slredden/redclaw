@@ -14,7 +14,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "Check Gmail for unread messages from ${USER_EMAIL}. If any found, read them and follow any instructions contained in the emails. Then send a message back to this session summarizing what you found and what actions you took."
+        "message": "Check Gmail for unread messages from ${USER_EMAIL} using the gog CLI tool (run: gog gmail search 'is:unread' --json). If any found, read them and follow any instructions contained in the emails. Then send a message back to this session summarizing what you found and what actions you took."
       },
       "delivery": {
         "mode": "none"
@@ -33,7 +33,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "Check Gmail for unread messages from ${USER_EMAIL}. If any found, read them and follow any instructions. Only notify if urgent or important."
+        "message": "Check Gmail for unread messages from ${USER_EMAIL} using the gog CLI tool (run: gog gmail search 'is:unread' --json). If any found, read them and follow any instructions. Only notify if urgent or important."
       },
       "delivery": {
         "mode": "none"
@@ -52,7 +52,7 @@
       "wakeMode": "now",
       "payload": {
         "kind": "agentTurn",
-        "message": "Send a morning email digest to ${USER_EMAIL} with: 1) Summary of any unread emails that need attention, 2) Top US news headlines, 3) Sports news if available, 4) Calendar overview for today. Format as a clean brief."
+        "message": "Send a morning email digest to ${USER_EMAIL} with: 1) Summary of any unread emails that need attention — use gog CLI (gog gmail search 'is:unread' --json), 2) Top US news headlines, 3) Sports news if available, 4) Calendar overview for today using gog CLI (gog calendar list --json). Format as a clean brief."
       },
       "delivery": {
         "mode": "announce"

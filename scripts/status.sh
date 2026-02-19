@@ -1,7 +1,5 @@
 #!/bin/bash
-
-# Set up PATH for openclaw commands
-export PATH="${HOME}/.npm-global/bin:${PATH}"
+# openclaw is system-wide at /usr/bin/openclaw — no PATH override needed here
 
 echo "╔════════════════════════════════════════╗"
 echo "║       ${BOT_NAME} Status Dashboard          ║"

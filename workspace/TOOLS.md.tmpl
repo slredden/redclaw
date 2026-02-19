@@ -1,0 +1,114 @@
+# TOOLS.md - Local Notes
+
+Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
+
+## What Goes Here
+
+Things like:
+- Camera names and locations
+- SSH hosts and aliases
+- Preferred voices for TTS
+- Speaker/room names
+- Device nicknames
+- Anything environment-specific
+
+## Examples
+
+```markdown
+### Cameras
+- living-room → Main area, 180° wide angle
+- front-door → Entrance, motion-triggered
+
+### SSH
+- home-server → 192.168.1.100, user: admin
+
+### TTS
+- Preferred voice: "Nova" (warm, slightly British)
+- Default speaker: Kitchen HomePod
+```
+
+## Why Separate?
+
+Skills are shared. Your setup is yours. Keeping them apart means you can update skills without losing your notes, and share skills without leaking your infrastructure.
+
+---
+
+Add whatever helps you do your job. This is your cheat sheet.
+
+---
+
+## API Limits & Rate Handling
+
+### Brave Search API
+**Limits:** Free tier = 1 req/sec, 2000 queries/month
+
+**Strategy:**
+- **Never parallelize searches** — sequential only
+- Batch topics when possible: "US news local weather sports" > 3 separate calls
+- Prefer `web_fetch` over `web_search` for known URLs
+- Consider 1-2 second delays between multiple searches
+
+**Current quota:** Tracked in API responses (resets monthly)
+
+---
+
+## Google Workspace (gog CLI)
+
+**Your account:** ${USER_EMAIL}
+**Auth:** OAuth2 via file keyring — credentials are set up during provisioning.
+**Binary:** `~/.npm-global/bin/gog` (already on your PATH)
+
+Always use `--json` for machine-readable output. Always confirm with your
+human before sending emails, modifying events, or deleting anything.
+
+### Gmail
+
+```bash
+# Search for unread messages
+gog gmail search 'is:unread' --max 20 --json
+
+# Read a specific message
+gog gmail read <message-id> --json
+
+# Send an email
+gog gmail send --to user@example.com --subject "Subject" --body "Body"
+
+# Search recent sent mail
+gog gmail search 'from:${USER_EMAIL} newer_than:1d' --json
+
+# Search with filters
+gog gmail search 'is:unread is:important' --max 10 --json
+```
+
+### Calendar
+
+```bash
+# Today's events
+gog calendar list --json
+
+# Next 7 days
+gog calendar list --days 7 --json
+
+# Specific date
+gog calendar list --date 2026-03-01 --json
+```
+
+### Drive
+
+```bash
+gog drive list --json
+gog drive get <file-id> --json
+```
+
+### Contacts
+
+```bash
+gog contacts search "Name" --json
+gog contacts list --json
+```
+
+### Auth & Keyring
+
+The `GOG_KEYRING_PASSWORD` env var is already set in your gateway's environment.
+Subshells that run gog commands inherit it from `openclaw.json`'s env section.
+If you ever need to re-auth: `gog auth add ${USER_EMAIL} --remote --step 1 --services gmail,calendar,drive,contacts`

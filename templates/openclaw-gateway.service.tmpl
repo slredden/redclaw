@@ -4,10 +4,15 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart="/usr/bin/node" "/home/${BOT_USER}/.npm-global/lib/node_modules/openclaw/dist/index.js" gateway --port ${GATEWAY_PORT}
+Type=simple
+ExecStart="/usr/bin/node" "/usr/lib/node_modules/openclaw/dist/index.js" gateway --port ${GATEWAY_PORT}
 Restart=always
 RestartSec=5
 KillMode=process
+PrivateTmp=yes
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
 Environment=NVIDIA_API_KEY=${NVIDIA_API_KEY}
 Environment="MEM0_API_KEY=${MEM0_API_KEY}"
 Environment=HOME=/home/${BOT_USER}

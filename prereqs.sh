@@ -22,18 +22,27 @@ step()  { echo -e "\n${GREEN}==>${NC} $1"; }
 
 # --- Argument parsing ---
 usage() {
-    echo "Usage: $(basename "$0") --bot-user <username>"
+    echo "Usage: $(basename "$0") --bot-user <username> [--skip-system]"
     echo ""
     echo "Installs system prerequisites, then copies this repo to the bot user's home."
+    echo ""
+    echo "Options:"
+    echo "  --bot-user <username>   Bot user account to prepare (required)"
+    echo "  --skip-system           Skip system-wide steps (Node.js, tools, openclaw install)"
+    echo "                          Use when adding a second bot user to an existing server"
+    echo "  -h, --help              Show this help message"
     exit 1
 }
 
 BOT_USER=""
+SKIP_SYSTEM=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bot-user)
             [[ -z "${2:-}" ]] && { err "--bot-user requires a username"; usage; }
             BOT_USER="$2"; shift 2 ;;
+        --skip-system)
+            SKIP_SYSTEM=true; shift ;;
         -h|--help)
             usage ;;
         *)
@@ -70,6 +79,16 @@ if [ -f /etc/os-release ]; then
 else
     warn "Cannot detect OS. Proceeding anyway."
 fi
+
+# ============================================================================
+# SYSTEM-WIDE STEPS (Node.js, tools, Openclaw)
+# Skipped with --skip-system when adding a second bot user to an existing server.
+# ============================================================================
+
+if $SKIP_SYSTEM; then
+    step "Skipping system-wide steps (--skip-system)"
+    info "Assuming Node.js, system tools, and Openclaw are already installed."
+else
 
 # --- Node.js >= 22 ---
 step "Checking Node.js"
@@ -137,6 +156,36 @@ if [ ${#TOOLS_TO_INSTALL[@]} -gt 0 ]; then
 fi
 
 # ============================================================================
+# Openclaw system-wide install
+# ============================================================================
+#
+# Openclaw is installed ONCE as root, shared across all bot users.
+# Each user still gets their own config at ~/.openclaw/ and their own
+# gateway process via systemd --user.
+#
+# NOTE: `openclaw update` does NOT work for npm installs. To update, run:
+#   sudo npm install -g openclaw@latest
+#   (then restart each user's gateway: openclaw gateway restart)
+
+step "Installing Openclaw system-wide"
+
+if command -v openclaw &> /dev/null; then
+    ok "Openclaw already installed: $(openclaw --version 2>/dev/null | head -1)"
+    info "To update Openclaw: sudo npm install -g openclaw@latest"
+    info "  (Do NOT use 'openclaw update' — it doesn't work for npm installs)"
+else
+    sudo npm install -g openclaw@latest
+    ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
+fi
+
+fi  # end: if ! $SKIP_SYSTEM
+
+# ============================================================================
+# PER-USER STEPS (lingering, repo copy)
+# These always run regardless of --skip-system.
+# ============================================================================
+
+# ============================================================================
 # Enable systemd lingering for the bot user
 # ============================================================================
 
@@ -178,12 +227,18 @@ echo "╔═══════════════════════�
 echo "║              Prerequisites Installed                       ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  Node.js:   $(node --version)"
-echo "  npm:       $(npm --version)"
-echo "  jq:        $(jq --version 2>/dev/null)"
-echo "  curl:      $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
-echo "  envsubst:  $(envsubst --version 2>/dev/null | head -1 || echo 'available')"
-echo "  openssl:   $(openssl version 2>/dev/null)"
+if ! $SKIP_SYSTEM; then
+    echo "  Node.js:   $(node --version)"
+    echo "  npm:       $(npm --version)"
+    echo "  openclaw:  $(openclaw --version 2>/dev/null | head -1) (system-wide)"
+    echo "  jq:        $(jq --version 2>/dev/null)"
+    echo "  curl:      $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
+    echo "  envsubst:  $(envsubst --version 2>/dev/null | head -1 || echo 'available')"
+    echo "  openssl:   $(openssl version 2>/dev/null)"
+else
+    echo "  System-wide steps skipped (--skip-system)"
+    echo "  openclaw:  $(openclaw --version 2>/dev/null | head -1) (existing system-wide install)"
+fi
 echo ""
 echo "Repo copied to: ${DEST_DIR}"
 echo ""
