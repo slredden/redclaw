@@ -565,8 +565,8 @@ ${MARKER}
 # User-local bin (gog and other per-user tools)
 export PATH="\${HOME}/.npm-global/bin:\${PATH}"
 
-# Openclaw completions (openclaw is system-wide at /usr/bin/openclaw)
-if command -v openclaw &> /dev/null; then
+# Openclaw completions (zsh only — openclaw completion outputs zsh syntax)
+if [ -n "\$ZSH_VERSION" ] && command -v openclaw &> /dev/null; then
     eval "\$(openclaw completion)"
 fi
 
