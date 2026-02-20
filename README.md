@@ -247,6 +247,8 @@ nano .env    # or vim, or whatever you prefer
 
 **SECURITY TIP:** Save your `.env` file contents (or at least the `GATEWAY_TOKEN` and API keys) in a password manager or password-protected file. You'll need these to access the dashboard later.
 
+> **Using ChatGPT Plus or Pro?** Set `AUTH_MODE=openai-codex` in your `.env` to use GPT-5.3 Codex as the primary model. Setup will handle the OAuth login automatically. See [OpenAI Codex Mode](#openai-codex-mode) for details.
+
 ### Step 5: Run Setup (as bot user)
 
 ```bash
@@ -258,9 +260,9 @@ nano .env    # or vim, or whatever you prefer
 ```
 
 Setup takes 2-5 minutes and will:
-- Install Openclaw to `~/.npm-global/`
 - Generate all config files from your `.env` values
-- Install extensions (mem0, gmail, gcal, gdrive)
+- Install the mem0 memory extension (if available)
+- Install the `gog` Google Workspace CLI
 - Set up the systemd gateway service
 - Install cron jobs for backup, watchdog, and config rotation
 - Copy workspace files (personality, behavior, tools)
@@ -397,23 +399,28 @@ cp ~/Downloads/client_secret_*.json ~/.openclaw/credentials/gmail-client-secret.
 
 ### Step 2: Authenticate Google Services
 
-Each command opens a browser for OAuth consent. Run them one at a time:
-
 ```bash
-openclaw gmail auth     # Authenticate Gmail
-openclaw gcal auth      # Authenticate Google Calendar
-openclaw gdrive auth    # Authenticate Google Drive
+gog auth credentials set ~/.openclaw/credentials/gmail-client-secret.json
+gog auth keyring file
+gog auth add <your-email> --remote --step 1 --services gmail,calendar,drive,contacts,sheets,docs
 ```
 
-**If you're on a headless server** (no browser), the auth command will print a URL. Open it on any machine with a browser, authorize, and paste the code back.
-
-### Step 3: Test Gmail
+The last command prints an auth URL. Open it in a browser, grant access, then paste the redirect URL back:
 
 ```bash
-openclaw gmail test
+gog auth add <your-email> --manual --auth-url '<paste redirect URL here>'
 ```
 
-If this returns your inbox summary, Gmail is working.
+**If you're on a headless server**, open the auth URL on any machine with a browser and paste the redirect URL back into the terminal as shown above.
+
+### Step 3: Test Google Access
+
+```bash
+gog gmail search 'newer_than:1d' --max 5
+gog calendar list
+```
+
+If these return results, Google Workspace is working.
 
 ### Step 4: Pair Telegram
 
@@ -460,22 +467,23 @@ crontab -l
 
 # 5. Extensions loaded
 openclaw plugins list
-# Expected: 4 extensions (mem0, gmail, gcal, gdrive)
+# Expected: openclaw-mem0 listed (if install succeeded)
 
 # 6. Model config
-cat ~/.openclaw/openclaw.json | jq '.models.providers.nvidia.models[0]'
-# Expected: Kimi K2.5 model definition
+cat ~/.openclaw/openclaw.json | jq '.agents.defaults.model'
+# Expected: primary model (kimi-k2.5 or gpt-5.3-codex depending on AUTH_MODE)
 
 # 7. Workspace files
 ls ~/.openclaw/workspace/
 # Expected: AGENTS.md, HEARTBEAT.md, IDENTITY.md, SOUL.md, TOOLS.md, USER.md, memory/, skills/
 
-# 8. Gmail (after auth)
-openclaw gmail test
-# Expected: Inbox summary
+# 8. Google Workspace (after auth)
+gog gmail search 'newer_than:1d' --max 5
+gog calendar list
+# Expected: recent emails and calendar entries
 
 # 9. Send a Telegram message to your bot
-# Expected: Bot responds using Kimi K2.5
+# Expected: Bot responds
 ```
 
 ---
@@ -487,8 +495,7 @@ openclaw gmail test
 The bot uses a **free model stack** with automatic fallback:
 
 1. **Primary:** Kimi K2.5 via [Nvidia NIM API](https://build.nvidia.com) — fast, capable, free (1000 req/day)
-2. **Fallback:** DeepSeek V3.2 (thinking) via [Vercel AI Gateway](https://sdk.vercel.ai/gateway) — used when Nvidia is down or rate-limited
-3. **Optional:** Claude Opus 4.5 via Vercel — available but not in the default chain (can be switched to manually)
+2. **Fallback:** Qwen3.5 397B via Nvidia NIM — used when Kimi K2.5 is down or rate-limited
 
 If the primary model fails, Openclaw automatically tries the next fallback. You never notice unless you check the logs.
 
@@ -686,9 +693,14 @@ ls -la ~/<botname>-backups/
 
 ### Updating Openclaw
 
+Openclaw is installed system-wide by `prereqs.sh`, so updates must be run as the admin user:
+
 ```bash
-npm install -g --prefix ~/.npm-global openclaw@latest
-openclaw gateway restart
+# As admin user (with sudo):
+sudo npm install -g openclaw@latest
+
+# Then as each bot user, restart their gateway:
+systemctl --user restart openclaw-gateway
 openclaw doctor    # Verify everything still works
 ```
 
