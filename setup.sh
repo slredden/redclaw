@@ -132,17 +132,17 @@ export BOT_NAME_LOWER
 # --- Codex auth validation ---
 if [ "$AUTH_MODE" = "openai-codex" ]; then
     CODEX_AUTH="${HOME}/.codex/auth.json"
-    if [ ! -f "$CODEX_AUTH" ]; then
-        err "AUTH_MODE=openai-codex but ~/.codex/auth.json not found"
-        err "Complete OAuth first: openclaw onboard --auth-choice openai-codex"
-        exit 1
-    fi
     _at=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
     _rt=$(jq -r '.tokens.refresh_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
     if [ -z "$_at" ] || [ -z "$_rt" ]; then
-        err "~/.codex/auth.json exists but tokens are missing or null"
-        err "Re-run: openclaw onboard --auth-choice openai-codex"
-        exit 1
+        info "Codex tokens missing — running: openclaw onboard --auth-choice openai-codex"
+        openclaw onboard --auth-choice openai-codex --skip-daemon
+        _at=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
+        _rt=$(jq -r '.tokens.refresh_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
+        if [ -z "$_at" ] || [ -z "$_rt" ]; then
+            err "Codex auth failed — ~/.codex/auth.json still missing valid tokens"
+            exit 1
+        fi
     fi
     export OPENAI_ACCESS_TOKEN="$_at"
     unset _at _rt
