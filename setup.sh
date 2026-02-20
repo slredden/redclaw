@@ -329,7 +329,8 @@ for ext in "${EXTENSIONS[@]}"; do
             warn "${ext_name}: install failed — removing from config"
             # Remove plugin references so config stays valid
             jq 'del(.plugins.entries["openclaw-mem0"]) |
-                if .plugins.slots.memory == "openclaw-mem0" then del(.plugins.slots.memory) else . end' \
+                if .plugins.slots.memory == "openclaw-mem0" then del(.plugins.slots.memory) else . end |
+                .plugins.allow = [.plugins.allow[] | select(. != "openclaw-mem0")]' \
                 "${HOME_DIR}/.openclaw/openclaw.json" > "${HOME_DIR}/.openclaw/openclaw.json.tmp" \
                 && mv "${HOME_DIR}/.openclaw/openclaw.json.tmp" "${HOME_DIR}/.openclaw/openclaw.json"
             chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
