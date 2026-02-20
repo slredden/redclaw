@@ -302,7 +302,7 @@ Setup takes 2-5 minutes and will:
 | `NVIDIA_API_KEY` | Yes | — | Nvidia NIM key (starts with `nvapi-`) |
 | `MEM0_API_KEY` | Yes | — | mem0 key (starts with `m0-`) |
 | `BRAVE_SEARCH_KEY` | Yes | — | Brave Search key (starts with `BSA`) |
-| `VERCEL_AI_KEY` | Yes | — | Vercel AI Gateway key (starts with `vck_`) |
+| `VERCEL_AI_KEY` | No | — | Vercel AI Gateway key (starts with `vck_`) — recommended for fallback models |
 
 #### Telegram (optional)
 | Variable | Required | Default | Description |

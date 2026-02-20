@@ -91,7 +91,7 @@ rm -f "$_safe_env"
 REQUIRED_VARS=(
     BOT_NAME BOT_USER BOT_EMOJI
     USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
-    NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
+    NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY
 )
 
 missing=()
@@ -360,6 +360,7 @@ else
         echo "  [dry-run] Would download gog from ${GOG_URL}"
     else
         info "Downloading gog v${GOG_VERSION}..."
+        mkdir -p "$(dirname "$GOG_BIN")"
         curl -fsSL "$GOG_URL" -o /tmp/gogcli.tar.gz
         tar -xzf /tmp/gogcli.tar.gz -C /tmp/ gog
         mv /tmp/gog "$GOG_BIN"
