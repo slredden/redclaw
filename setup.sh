@@ -465,6 +465,14 @@ if ! $DRY_RUN; then
     chmod 600 "${SYSTEMD_DIR}/openclaw-gateway.service"
     ok "openclaw-gateway.service: permissions set to 600"
 
+    # Stop this user's existing gateway before the port check so a previous
+    # onboard or setup run doesn't falsely trigger the conflict check.
+    if timeout 3 systemctl --user is-active openclaw-gateway.service &>/dev/null 2>&1; then
+        info "Stopping existing gateway..."
+        systemctl --user stop openclaw-gateway.service 2>/dev/null || true
+        sleep 2
+    fi
+
     # Port conflict check — each bot user needs a unique GATEWAY_PORT
     if ss -tuln 2>/dev/null | grep -q ":${GATEWAY_PORT} " || \
        lsof -i ":${GATEWAY_PORT}" &>/dev/null 2>&1; then

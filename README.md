@@ -334,14 +334,7 @@ By default, the bot uses free Nvidia NIM API keys for model access. If you have 
 
 ### Setup
 
-**Before running `setup.sh`**, authenticate Codex as the bot user:
-
-```bash
-openclaw onboard --auth-choice openai-codex
-# Follow the browser prompt — writes tokens to ~/.codex/auth.json
-```
-
-Then set `AUTH_MODE=openai-codex` in your `.env` file and run `setup.sh` normally. The script validates `~/.codex/auth.json`, renders the Codex-specific config templates, and installs `~/codex-refresh.sh` to auto-renew tokens daily at 4 AM.
+Set `AUTH_MODE=openai-codex` in your `.env` file and run `setup.sh` normally. If Codex tokens aren't present, setup will automatically run the OAuth flow inline — a browser prompt will appear (or a URL to open on another machine if headless). The script then renders the Codex-specific config templates and installs `~/codex-refresh.sh` to auto-renew tokens daily at 4 AM.
 
 ### Token Refresh
 
@@ -351,11 +344,7 @@ Access tokens last ~8 days; the daily cron job renews them automatically. If the
 ~/codex-refresh.sh
 ```
 
-If `~/.codex/auth.json` is missing or corrupt, re-authenticate:
-
-```bash
-openclaw onboard --auth-choice openai-codex
-```
+If `~/.codex/auth.json` is missing or corrupt, re-run `./setup.sh` — it will trigger the OAuth flow automatically.
 
 ### Switching Between Modes
 
