@@ -29,7 +29,7 @@ Two scripts. One `.env` file. A fully operational AI assistant.
 
 ## What You Get
 
-- **Free AI models**: Kimi K2.5 via Nvidia NIM (primary) + DeepSeek V3.2 via Vercel AI Gateway (fallback)
+- **Free AI models**: Kimi K2.5 via Nvidia NIM (primary) + Qwen3.5 397B via Nvidia NIM (fallback)
 - **Telegram bot**: DM-based personal assistant with pairing security
 - **Google Workspace**: Gmail, Calendar, Drive integration via OAuth
 - **Persistent memory**: mem0 cloud memory across sessions
@@ -69,16 +69,17 @@ Two scripts. One `.env` file. A fully operational AI assistant.
                     ┌──────────────┼──────────────┐
                     ▼              ▼              ▼
               ┌──────────┐  ┌──────────┐  ┌──────────┐
-              │ Nvidia   │  │ Vercel   │  │ mem0     │
-              │ NIM API  │  │ AI GW    │  │ Cloud    │
-              │ (Kimi)   │  │(fallback)│  │ (memory) │
+              │ Nvidia   │  │ Nvidia   │  │ mem0     │
+              │ NIM API  │  │ NIM API  │  │ Cloud    │
+              │ (Kimi)   │  │ (Qwen,   │  │ (memory) │
+              │ primary  │  │ fallback)│  │          │
               └──────────┘  └──────────┘  └──────────┘
 ```
 
 **How it flows:**
 1. You message the bot on Telegram
 2. The Openclaw gateway receives the message
-3. It routes to Kimi K2.5 (free, via Nvidia). If that fails, it falls back to DeepSeek V3.2 (via Vercel)
+3. It routes to Kimi K2.5 (free, via Nvidia). If that fails, it falls back to Qwen3.5 397B (also via Nvidia)
 4. The bot reads its workspace files (personality, your preferences) each session
 5. It can check Gmail, manage your calendar, search the web, and remember things via mem0
 6. Automation scripts keep it healthy and backed up
@@ -103,14 +104,13 @@ Setup is split into two scripts for security — Openclaw runs as a **standard u
 
 ### Accounts & API Keys (All Free)
 
-You need 4 API keys before running setup (Telegram is optional). All are free tier:
+You need 3 API keys before running setup (Telegram is optional). All are free tier:
 
 | Service | What It Does | Free Tier Limits |
 |---------|-------------|-----------------|
-| [Nvidia NIM](https://build.nvidia.com) | Primary AI model (Kimi K2.5) | 1000 req/day |
+| [Nvidia NIM](https://build.nvidia.com) | Primary + fallback AI models (Kimi K2.5, Qwen3.5) | 1000 req/day |
 | [mem0](https://mem0.ai) | Persistent memory across sessions | 1000 memories |
 | [Brave Search](https://brave.com/search/api) | Web search | 2000 queries/month |
-| [Vercel AI Gateway](https://sdk.vercel.ai/gateway) | Fallback models (DeepSeek, Claude) | Usage-based |
 | [Telegram BotFather](https://t.me/BotFather) | Chat interface | Unlimited |
 
 Plus a **Google Cloud project** for Gmail/Calendar/Drive (free, but requires setup).
@@ -141,13 +141,7 @@ Plus a **Google Cloud project** for Gmail/Calendar/Drive (free, but requires set
 3. Create an account and verify your email
 4. Your API key will be on the dashboard — starts with `BSA`
 
-### 4. Vercel AI Gateway Key
-
-1. Go to [sdk.vercel.ai/gateway](https://sdk.vercel.ai/gateway)
-2. Sign in with your Vercel account (or create one free)
-3. Generate an API key — starts with `vck_`
-
-### 5. Telegram Bot Token
+### 4. Telegram Bot Token
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot`
@@ -158,7 +152,7 @@ Plus a **Google Cloud project** for Gmail/Calendar/Drive (free, but requires set
 
 **Finding your Telegram User ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram — it replies with your numeric ID.
 
-### 6. Google Cloud OAuth Setup
+### 5. Google Cloud OAuth Setup
 
 This is the most involved step. You need a Google Cloud project with OAuth credentials.
 
@@ -304,7 +298,7 @@ Setup takes 2-5 minutes and will:
 | `NVIDIA_API_KEY` | Yes | — | Nvidia NIM key (starts with `nvapi-`) |
 | `MEM0_API_KEY` | Yes | — | mem0 key (starts with `m0-`) |
 | `BRAVE_SEARCH_KEY` | Yes | — | Brave Search key (starts with `BSA`) |
-| `VERCEL_AI_KEY` | No | — | Vercel AI Gateway key (starts with `vck_`) — recommended for fallback models |
+| `VERCEL_AI_KEY` | No | — | Vercel AI Gateway key (starts with `vck_`) — optional, enables additional models via Vercel |
 
 #### Telegram (optional)
 | Variable | Required | Default | Description |
@@ -332,7 +326,7 @@ By default, the bot uses free Nvidia NIM API keys for model access. If you have 
 ### Prerequisites
 
 - Active ChatGPT Plus or Pro subscription
-- No `NVIDIA_API_KEY` required in this mode (Vercel fallback still applies)
+- `NVIDIA_API_KEY` still required — Kimi K2.5 is used as the fallback when Codex is unavailable
 
 ### Setup
 
@@ -911,7 +905,7 @@ Alternatively, edit `~/.openclaw/openclaw.json` directly:
 |---------|-----|
 | `fallback` vs `fallbacks` error | Must be `fallbacks` (plural, array of strings) |
 | Unknown config key error | Openclaw uses strict Zod validation — remove unrecognized keys |
-| API key not working | Check key format: Nvidia=`nvapi-`, mem0=`m0-`, Brave=`BSA`, Vercel=`vck_` |
+| API key not working | Check key format: Nvidia=`nvapi-`, mem0=`m0-`, Brave=`BSA` |
 
 ---
 
@@ -927,7 +921,7 @@ Alternatively, edit `~/.openclaw/openclaw.json` directly:
 │
 ├── templates/                         # Config templates with ${VAR} placeholders
 │   ├── openclaw.json.tmpl             # Main Openclaw config
-│   ├── auth-profiles.json.tmpl        # Vercel AI Gateway auth
+│   ├── auth-profiles.json.tmpl        # Auth profiles (Nvidia, optional Vercel)
 │   └── openclaw-gateway.service.tmpl  # Systemd unit file
 │
 ├── workspace/                         # Agent workspace files
@@ -982,7 +976,7 @@ Alternatively, edit `~/.openclaw/openclaw.json` directly:
 
 - The `.env` file — contains all API keys
 - `~/.openclaw/openclaw.json` — contains API keys and gateway token
-- `~/.openclaw/agents/main/agent/auth-profiles.json` — contains Vercel key
+- `~/.openclaw/agents/main/agent/auth-profiles.json` — contains auth profile keys
 - `~/.openclaw/credentials/` — contains Google OAuth tokens
 - Never commit these to a public repo
 
