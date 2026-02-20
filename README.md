@@ -14,6 +14,7 @@ Two scripts. One `.env` file. A fully operational AI assistant.
 - [Getting Your API Keys](#getting-your-api-keys)
 - [Quick Start](#quick-start)
 - [Configuration Reference](#configuration-reference)
+- [OpenAI Codex Mode](#openai-codex-mode)
 - [Post-Setup: Interactive Steps](#post-setup-interactive-steps)
 - [Verification Checklist](#verification-checklist)
 - [How It Works](#how-it-works)
@@ -309,11 +310,63 @@ Setup takes 2-5 minutes and will:
 | `TELEGRAM_BOT_TOKEN` | No | — | Token from @BotFather (leave blank to skip Telegram) |
 | `TELEGRAM_USER_ID` | No | — | Your numeric Telegram ID (for pairing) |
 
+#### Auth Mode
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AUTH_MODE` | No | `nvidia` | Model auth backend: `nvidia` (free NIM API) or `openai-codex` (ChatGPT Plus/Pro via OAuth). See [OpenAI Codex Mode](#openai-codex-mode) below. |
+
 #### Gateway
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GATEWAY_PORT` | No | `18789` | Local port for the gateway HTTP server |
 | `GATEWAY_TOKEN` | No | auto-generated | Auth token for gateway API calls |
+
+---
+
+## OpenAI Codex Mode
+
+By default, the bot uses free Nvidia NIM API keys for model access. If you have a **ChatGPT Plus or Pro** subscription, you can use `AUTH_MODE=openai-codex` instead. This routes the primary model to `gpt-5.3-codex` via OAuth — no separate API key required.
+
+### Prerequisites
+
+- Active ChatGPT Plus or Pro subscription
+- No `NVIDIA_API_KEY` required in this mode (Vercel fallback still applies)
+
+### Setup
+
+**Before running `setup.sh`**, authenticate Codex as the bot user:
+
+```bash
+openclaw onboard --auth-choice openai-codex
+# Follow the browser prompt — writes tokens to ~/.codex/auth.json
+```
+
+Then set `AUTH_MODE=openai-codex` in your `.env` file and run `setup.sh` normally. The script validates `~/.codex/auth.json`, renders the Codex-specific config templates, and installs `~/codex-refresh.sh` to auto-renew tokens daily at 4 AM.
+
+### Token Refresh
+
+Access tokens last ~8 days; the daily cron job renews them automatically. If the bot stops responding after a long outage, run manually:
+
+```bash
+~/codex-refresh.sh
+```
+
+If `~/.codex/auth.json` is missing or corrupt, re-authenticate:
+
+```bash
+openclaw onboard --auth-choice openai-codex
+```
+
+### Switching Between Modes
+
+Update `AUTH_MODE` in `.env` and re-run `./setup.sh`. When switching away from `openai-codex`, the `codex-refresh.sh` cron entry is left behind — remove it if you no longer need it:
+
+```bash
+crontab -l | grep -v codex-refresh | crontab -
+rm ~/codex-refresh.sh
+```
+
+> See `RUNBOOK.md` for full operational details on Codex mode.
 
 ---
 
@@ -449,6 +502,8 @@ The bot uses a **free model stack** with automatic fallback:
 3. **Optional:** Claude Opus 4.5 via Vercel — available but not in the default chain (can be switched to manually)
 
 If the primary model fails, Openclaw automatically tries the next fallback. You never notice unless you check the logs.
+
+**Alternative: OpenAI Codex mode** — If you have a ChatGPT Plus or Pro subscription, set `AUTH_MODE=openai-codex` to use `gpt-5.3-codex` as the primary model instead, authenticated via OAuth (no API key needed). See [OpenAI Codex Mode](#openai-codex-mode) for setup.
 
 ### Workspace System
 
