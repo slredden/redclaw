@@ -265,6 +265,14 @@ fi
 # Create the directory structure that onboarding would normally create.
 run mkdir -p "${HOME_DIR}/.openclaw/workspace"
 run mkdir -p "${HOME_DIR}/.openclaw/agents/main/sessions"
+run mkdir -p "${HOME_DIR}/.openclaw/completions"
+
+# Generate bash completion file so bashrc can source it without error
+# (openclaw onboard adds a source line regardless of whether setup.sh runs first)
+if ! $DRY_RUN; then
+    openclaw completion --shell bash --write-state --yes &>/dev/null || true
+fi
+
 ok "Openclaw directory structure created"
 
 # ============================================================================
