@@ -1,0 +1,141 @@
+#!/bin/bash
+# ${BOT_NAME} Codex Token Refresh
+# Checks if the OpenAI Codex access token is near expiry and refreshes it.
+# Runs daily at 4 AM via cron. Refreshes only if token expires within 3 days.
+
+set -euo pipefail
+
+AUTH_JSON="${HOME}/.codex/auth.json"
+PROFILES_JSON="${HOME}/.openclaw/agents/main/agent/auth-profiles.json"
+LOG="${HOME}/${BOT_NAME_LOWER}-codex-refresh.log"
+CLIENT_ID="app_EMoamEEZ73f0CkXaXp7hrann"
+TOKEN_ENDPOINT="https://auth.openai.com/oauth/token"
+REFRESH_THRESHOLD_DAYS=3
+SERVICE="openclaw-gateway.service"
+
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+TELEGRAM_USER_ID="${TELEGRAM_USER_ID}"
+
+# --- Environment for cron (systemctl --user needs D-Bus) ---
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
+}
+
+send_telegram_alert() {
+    local msg="$1"
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_USER_ID" ]; then
+        log "[WARN] Telegram not configured — cannot send alert"
+        return 0
+    fi
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_USER_ID}" \
+        -d "text=${msg}" \
+        > /dev/null 2>&1 || true
+}
+
+# Trim log if it exceeds 1000 lines
+if [ -f "$LOG" ] && [ "$(wc -l < "$LOG")" -gt 1000 ]; then
+    tail -500 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"
+fi
+
+# --- Validate auth.json exists ---
+if [ ! -f "$AUTH_JSON" ]; then
+    log "[ERROR] ~/.codex/auth.json not found — run: openclaw onboard --auth-choice openai-codex"
+    send_telegram_alert "⚠️ Codex token refresh failed — ~/.codex/auth.json missing. Re-auth needed."
+    exit 1
+fi
+
+# --- Extract current access token ---
+ACCESS_TOKEN=$(jq -r '.tokens.access_token // empty' "$AUTH_JSON" 2>/dev/null || true)
+if [ -z "$ACCESS_TOKEN" ]; then
+    log "[ERROR] No access_token found in $AUTH_JSON"
+    send_telegram_alert "⚠️ Codex token refresh failed — no access_token in auth.json. Re-auth needed."
+    exit 1
+fi
+
+# --- Decode JWT exp from middle segment ---
+# JWT format: header.payload.signature (base64url encoded)
+JWT_PAYLOAD=$(echo "$ACCESS_TOKEN" | cut -d. -f2)
+# base64url → base64: replace - with +, _ with /, add padding
+PADDED=$(echo "$JWT_PAYLOAD" | tr '_-' '/+' | awk '{ n=length($0)%4; if(n==2) print $0"=="; else if(n==3) print $0"="; else print $0 }')
+EXP=$(echo "$PADDED" | base64 -d 2>/dev/null | jq -r '.exp // empty' 2>/dev/null || true)
+
+if [ -z "$EXP" ]; then
+    log "[ERROR] Could not decode exp from access_token JWT"
+    send_telegram_alert "⚠️ Codex token refresh failed — could not decode token expiry. Manual check needed."
+    exit 1
+fi
+
+NOW=$(date '+%s')
+THRESHOLD=$(( NOW + REFRESH_THRESHOLD_DAYS * 86400 ))
+
+if [ "$EXP" -gt "$THRESHOLD" ]; then
+    DAYS_LEFT=$(( (EXP - NOW) / 86400 ))
+    log "[OK] Access token is valid for ${DAYS_LEFT} more days — no refresh needed"
+    exit 0
+fi
+
+log "[INFO] Access token expires within ${REFRESH_THRESHOLD_DAYS} days — refreshing"
+
+# --- Extract refresh token ---
+REFRESH_TOKEN=$(jq -r '.tokens.refresh_token // empty' "$AUTH_JSON" 2>/dev/null || true)
+if [ -z "$REFRESH_TOKEN" ]; then
+    log "[ERROR] No refresh_token found in $AUTH_JSON"
+    send_telegram_alert "⚠️ Codex token refresh failed — no refresh_token. Re-auth needed."
+    exit 1
+fi
+
+# --- POST to token endpoint ---
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$TOKEN_ENDPOINT" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "grant_type=refresh_token&refresh_token=${REFRESH_TOKEN}&client_id=${CLIENT_ID}" 2>/dev/null)
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | head -n -1)
+
+if [ "$HTTP_CODE" != "200" ]; then
+    log "[ERROR] Token refresh HTTP ${HTTP_CODE}: $BODY"
+    send_telegram_alert "⚠️ Codex token refresh failed (HTTP ${HTTP_CODE}) — manual re-auth needed. Run: openclaw onboard --auth-choice openai-codex"
+    exit 1
+fi
+
+NEW_ACCESS_TOKEN=$(echo "$BODY" | jq -r '.access_token // empty' 2>/dev/null || true)
+NEW_REFRESH_TOKEN=$(echo "$BODY" | jq -r '.refresh_token // empty' 2>/dev/null || true)
+
+if [ -z "$NEW_ACCESS_TOKEN" ] || [ -z "$NEW_REFRESH_TOKEN" ]; then
+    log "[ERROR] Refresh response missing tokens: $BODY"
+    send_telegram_alert "⚠️ Codex token refresh failed — response missing tokens. Manual re-auth needed."
+    exit 1
+fi
+
+# --- Update ~/.codex/auth.json atomically ---
+jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" --arg ts "$(date -Iseconds)" \
+    '.tokens.access_token = $at | .tokens.refresh_token = $rt | .last_refresh = $ts' \
+    "$AUTH_JSON" > "${AUTH_JSON}.tmp" \
+    && mv "${AUTH_JSON}.tmp" "$AUTH_JSON"
+chmod 600 "$AUTH_JSON"
+
+log "[OK] ~/.codex/auth.json updated"
+
+# --- Update auth-profiles.json atomically ---
+if [ -f "$PROFILES_JSON" ]; then
+    jq --arg at "$NEW_ACCESS_TOKEN" \
+        '.profiles["openai-codex:default"].key = $at' \
+        "$PROFILES_JSON" > "${PROFILES_JSON}.tmp" \
+        && mv "${PROFILES_JSON}.tmp" "$PROFILES_JSON"
+    chmod 600 "$PROFILES_JSON"
+    log "[OK] auth-profiles.json updated"
+else
+    log "[WARN] $PROFILES_JSON not found — skipping profile update"
+fi
+
+# --- Restart gateway to pick up new token ---
+if systemctl --user restart "$SERVICE" 2>/dev/null; then
+    log "[OK] Gateway restarted"
+else
+    log "[WARN] Could not restart gateway via systemd — restart manually: openclaw gateway restart"
+fi
+
+log "[OK] Codex token refresh complete"

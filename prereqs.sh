@@ -271,3 +271,6 @@ echo ""
 echo "  3. Run the setup script:"
 echo "     ./setup.sh"
 echo ""
+# NOTE: For AUTH_MODE=openai-codex, the bot user must complete OAuth before running setup.sh:
+#   As the bot user: openclaw onboard --auth-choice openai-codex
+# This stores tokens in ~/.codex/auth.json which setup.sh will pick up automatically.

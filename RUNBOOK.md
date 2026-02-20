@@ -327,3 +327,100 @@ If the watchdog keeps restarting the gateway, check:
 1. Is the port unique? Another user may have the same port
 2. Is the gateway actually unhealthy? `openclaw health`
 3. Check gateway logs: `journalctl --user -u openclaw-gateway.service -n 100`
+
+---
+
+## OpenAI Codex Auth Mode
+
+Use `AUTH_MODE=openai-codex` to run the agent on ChatGPT Plus/Pro via OAuth instead of
+free-tier Nvidia NIM. The primary model becomes `openai-codex/gpt-5.3-codex`; Nvidia
+fallbacks remain active for when Codex is unavailable.
+
+**Prerequisites:** A ChatGPT Plus or Pro subscription is required.
+
+### Setup
+
+1. **Complete OAuth as the bot user** (before running setup.sh):
+
+   ```bash
+   # As the bot user (fresh SSH session):
+   openclaw onboard --auth-choice openai-codex
+   # Follow the browser prompt — this writes tokens to ~/.codex/auth.json
+   ```
+
+2. **Set AUTH_MODE in .env:**
+
+   ```bash
+   nano ~/redbot-provision/.env
+   # Set: AUTH_MODE=openai-codex
+   ```
+
+3. **Run setup.sh** (fresh run or re-run):
+
+   ```bash
+   ./setup.sh
+   ```
+
+   setup.sh will validate `~/.codex/auth.json`, render the Codex-specific
+   `openclaw.json` and `auth-profiles.json`, install `~/codex-refresh.sh`, and
+   add the daily refresh cron job.
+
+### Token Refresh
+
+OpenAI Codex access tokens last ~8 days; refresh tokens last ~60 days. The
+`codex-refresh.sh` script handles renewal automatically:
+
+- **Schedule:** 4 AM daily (added to user crontab by setup.sh)
+- **Logic:** Checks token expiry; only refreshes if within 3 days of expiry
+- **On success:** Updates `~/.codex/auth.json` and `auth-profiles.json`,
+  restarts the gateway
+- **On failure:** Sends a Telegram alert (if configured) and exits 1
+
+To manually trigger a refresh:
+
+```bash
+~/codex-refresh.sh
+```
+
+Check the refresh log:
+
+```bash
+tail -50 ~/${BOT_NAME_LOWER}-codex-refresh.log
+```
+
+### Failure Recovery
+
+If the refresh token expires (~60 days of no successful refresh), re-authenticate:
+
+```bash
+# As the bot user:
+openclaw onboard --auth-choice openai-codex
+# Then immediately run a manual refresh to populate new tokens:
+~/codex-refresh.sh
+```
+
+If `~/.codex/auth.json` is missing or corrupt:
+
+```bash
+openclaw onboard --auth-choice openai-codex
+```
+
+### Switching Auth Modes
+
+To switch from `openai-codex` back to `nvidia` (or vice versa), update `AUTH_MODE`
+in `.env` and re-run setup.sh. This re-renders `openclaw.json` and
+`auth-profiles.json` for the new mode. The gateway restarts automatically.
+
+```bash
+nano ~/redbot-provision/.env   # change AUTH_MODE=
+./setup.sh
+```
+
+Note: When switching away from `openai-codex`, the `codex-refresh.sh` cron entry
+and script are left in place but harmless (they will not be added again if
+`AUTH_MODE` is not `openai-codex`). Remove manually if desired:
+
+```bash
+crontab -l | grep -v codex-refresh | crontab -
+rm ~/codex-refresh.sh
+```

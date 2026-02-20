@@ -116,6 +116,7 @@ export NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
 export TELEGRAM_BOT_TOKEN TELEGRAM_USER_ID
 export GATEWAY_PORT="${GATEWAY_PORT:-18789}"
 export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-redbot}"
+export AUTH_MODE="${AUTH_MODE:-nvidia}"
 
 # Auto-generate gateway token if blank
 if [ -z "${GATEWAY_TOKEN:-}" ]; then
@@ -128,6 +129,35 @@ export GATEWAY_TOKEN
 BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 export BOT_NAME_LOWER
 
+# --- Codex auth validation ---
+if [ "$AUTH_MODE" = "openai-codex" ]; then
+    CODEX_AUTH="${HOME}/.codex/auth.json"
+    if [ ! -f "$CODEX_AUTH" ]; then
+        err "AUTH_MODE=openai-codex but ~/.codex/auth.json not found"
+        err "Complete OAuth first: openclaw onboard --auth-choice openai-codex"
+        exit 1
+    fi
+    _at=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
+    _rt=$(jq -r '.tokens.refresh_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
+    if [ -z "$_at" ] || [ -z "$_rt" ]; then
+        err "~/.codex/auth.json exists but tokens are missing or null"
+        err "Re-run: openclaw onboard --auth-choice openai-codex"
+        exit 1
+    fi
+    export OPENAI_ACCESS_TOKEN="$_at"
+    unset _at _rt
+    info "AUTH_MODE=openai-codex — Codex tokens verified"
+fi
+
+# --- Template selection based on AUTH_MODE ---
+if [ "$AUTH_MODE" = "openai-codex" ]; then
+    OPENCLAW_JSON_TMPL="openclaw.json.codex.tmpl"
+    AUTH_PROFILES_TMPL="auth-profiles.json.codex.tmpl"
+else
+    OPENCLAW_JSON_TMPL="openclaw.json.tmpl"
+    AUTH_PROFILES_TMPL="auth-profiles.json.tmpl"
+fi
+
 if $DRY_RUN; then
     step "DRY RUN MODE — no changes will be made"
     echo "  BOT_NAME=$BOT_NAME"
@@ -135,6 +165,8 @@ if $DRY_RUN; then
     echo "  BOT_NAME_LOWER=$BOT_NAME_LOWER"
     echo "  GATEWAY_PORT=$GATEWAY_PORT"
     echo "  GATEWAY_TOKEN=${GATEWAY_TOKEN:0:8}..."
+    echo "  AUTH_MODE=$AUTH_MODE"
+    echo "  OPENCLAW_JSON_TMPL=$OPENCLAW_JSON_TMPL"
     echo ""
 fi
 
@@ -254,7 +286,7 @@ if ! $DRY_RUN; then
 fi
 
 # Main config
-render_template "${SCRIPT_DIR}/templates/openclaw.json.tmpl" "${HOME_DIR}/.openclaw/openclaw.json"
+render_template "${SCRIPT_DIR}/templates/${OPENCLAW_JSON_TMPL}" "${HOME_DIR}/.openclaw/openclaw.json"
 if ! $DRY_RUN; then
     chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
     ok "openclaw.json generated (mode 600)"
@@ -270,7 +302,7 @@ if ! $DRY_RUN; then
 fi
 
 # Auth profiles
-render_template "${SCRIPT_DIR}/templates/auth-profiles.json.tmpl" \
+render_template "${SCRIPT_DIR}/templates/${AUTH_PROFILES_TMPL}" \
     "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
 if ! $DRY_RUN; then
     chmod 600 "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
@@ -493,6 +525,20 @@ add_cron_if_missing "rotate-config.sh" \
 
 add_cron_if_missing "watchdog.sh" \
     "*/5 * * * * ${HOME_DIR}/watchdog.sh"
+
+# Codex token auto-refresh (only in openai-codex mode)
+if [ "$AUTH_MODE" = "openai-codex" ]; then
+    CODEX_REFRESH_DST="${HOME_DIR}/codex-refresh.sh"
+    if [ ! -f "$CODEX_REFRESH_DST" ]; then
+        render_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST"
+        run chmod 700 "$CODEX_REFRESH_DST"
+        ok "codex-refresh.sh → ~/codex-refresh.sh"
+    else
+        ok "codex-refresh.sh: already exists (preserved)"
+    fi
+    add_cron_if_missing "codex-refresh.sh" \
+        "0 4 * * * ${HOME_DIR}/codex-refresh.sh >> ${HOME_DIR}/${BOT_NAME_LOWER}-codex-refresh.log 2>&1"
+fi
 
 # Openclaw internal cron jobs
 render_template "${SCRIPT_DIR}/cron/jobs.json.tmpl" "${HOME_DIR}/.openclaw/cron/jobs.json"

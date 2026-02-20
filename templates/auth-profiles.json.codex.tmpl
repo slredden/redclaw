@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "profiles": {
+    "openai-codex:default": {
+      "type": "api_key",
+      "provider": "openai-codex",
+      "key": "${OPENAI_ACCESS_TOKEN}"
+    },
+    "vercel-ai-gateway:default": {
+      "type": "api_key",
+      "provider": "vercel-ai-gateway",
+      "key": "${VERCEL_AI_KEY}"
+    }
+  },
+  "lastGood": {
+    "openai-codex": "openai-codex:default",
+    "vercel-ai-gateway": "vercel-ai-gateway:default"
+  }
+}
