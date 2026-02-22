@@ -135,10 +135,10 @@ info "Removing cron jobs..."
 
 if crontab -l &>/dev/null; then
     BEFORE=$(crontab -l 2>/dev/null)
-    AFTER=$(echo "$BEFORE" | grep -vF "backup.sh" | grep -vF "rotate-config.sh" | grep -vF "watchdog.sh" || true)
+    AFTER=$(echo "$BEFORE" | grep -vF "backup.sh" | grep -vF "rotate-config.sh" | grep -vF "watchdog.sh" | grep -vF "codex-refresh.sh" || true)
     if [ "$BEFORE" != "$AFTER" ]; then
         if $DRY_RUN; then
-            echo -e "  ${YELLOW}[dry-run]${NC} Would remove cron entries for backup.sh, rotate-config.sh, watchdog.sh"
+            echo -e "  ${YELLOW}[dry-run]${NC} Would remove cron entries for backup.sh, rotate-config.sh, watchdog.sh, codex-refresh.sh"
         else
             echo "$AFTER" | crontab -
         fi
@@ -156,7 +156,7 @@ fi
 
 info "Removing automation scripts..."
 
-for script in backup.sh watchdog.sh status.sh; do
+for script in backup.sh watchdog.sh status.sh codex-refresh.sh; do
     if [ -f "${HOME_DIR}/${script}" ]; then
         run rm -f "${HOME_DIR}/${script}"
         ok "Removed ~/${script}"

@@ -36,23 +36,30 @@ Operational reference for managing Openclaw bot users on a shared server.
 
 ## First Server Setup
 
-### 1. Create the bot user
-
-```bash
-sudo adduser botname
-# Set a strong password (or use --disabled-password for key-only access)
-```
-
-### 2. Run prereqs.sh as admin
+### 1. Install system prerequisites (admin, once)
 
 ```bash
 # As an admin user (with sudo):
-cd ~/redbot-provision
-sudo ./prereqs.sh --bot-user botname
+cd ~/redclaw
+sudo ./prereqs.sh
 ```
 
-This installs Node.js, system tools, and Openclaw system-wide, then copies the repo
-to `/home/botname/redbot-provision/` and enables systemd lingering.
+Installs Node.js, system tools, and Openclaw system-wide.
+Safe to re-run — skips steps already completed.
+
+### 2. Create and prepare the bot user account (admin)
+
+```bash
+sudo adduser botname
+sudo ./add-bot.sh --bot-user botname
+```
+
+Or in one step:
+```bash
+sudo ./add-bot.sh --bot-user botname --create-user
+```
+
+This copies the repo to `/home/botname/redbot-provision/` and enables systemd lingering.
 
 ### 3. Log in as the bot user (fresh session required)
 
@@ -63,16 +70,26 @@ ssh botname@localhost
 # or log out of admin and SSH back in as botname
 ```
 
-### 4. Configure and run setup.sh
+### 4. Get Codex tokens
+
+```bash
+openclaw onboard --auth-choice openai-codex --skip-daemon
+# Follow the OAuth flow in your browser.
+# Then extract the tokens:
+jq -r '.tokens.access_token' ~/.codex/auth.json
+jq -r '.tokens.refresh_token' ~/.codex/auth.json
+```
+
+### 5. Configure and run setup.sh
 
 ```bash
 cd ~/redbot-provision
 cp .env.example .env
-nano .env          # Fill in API keys, bot name, email, gateway port, etc.
+nano .env          # Fill in tokens, bot name, email, gateway port
 ./setup.sh
 ```
 
-### 5. Complete manual steps
+### 6. Complete manual steps
 
 Follow the instructions printed by `setup.sh`:
 - Google OAuth via gog (place client secret, run `gog auth add`)
@@ -86,50 +103,33 @@ Follow the instructions printed by `setup.sh`:
 
 When the server already has Node.js, system tools, and Openclaw installed:
 
-### 1. Create the new bot user
+### 1. Prepare the new bot user account (admin)
 
 ```bash
-sudo adduser botname2
+sudo ./add-bot.sh --bot-user botname2 --create-user
 ```
 
-### 2. Run prereqs.sh with --skip-system
+### 2. Choose a unique gateway port
+
+Each bot user must have a different `GATEWAY_PORT`. Check what's in use:
 
 ```bash
-# As admin — skip Node.js/tools/openclaw install, only enable lingering + copy repo:
-sudo ./prereqs.sh --bot-user botname2 --skip-system
-```
-
-### 3. Choose a unique gateway port
-
-Before running setup.sh, edit `.env` and pick a port not in use:
-
-```bash
-# Check what's already bound:
 ss -tuln | grep 187
 ```
 
-Use the next available port in the 18789+ range (see Port Allocation below).
-
-### 4. Log in as bot2 and run setup.sh
-
-Each bot user has their own copy of the repo at `~/redbot-provision/` and their
-own `.env` — all values are independent (separate bot name, email, API keys, port).
+### 3. Log in as bot2 and run setup.sh
 
 ```bash
 ssh botname2@localhost
 cd ~/redbot-provision
+
+# Get Codex tokens first:
+openclaw onboard --auth-choice openai-codex --skip-daemon
+
 cp .env.example .env
 nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all other values
 ./setup.sh
 ```
-
-### 5. Complete manual steps
-
-Same as First Server Setup step 5:
-- Google OAuth via gog (place client secret, run `gog auth add`)
-- Telegram pairing (if configured)
-- Reload shell: `source ~/.bashrc`
-- Verify: `openclaw health` and `~/status.sh`
 
 ---
 
@@ -249,6 +249,44 @@ sudo npm uninstall -g openclaw
 
 ---
 
+## Codex Token Refresh
+
+OpenAI Codex access tokens last ~8 days; refresh tokens last ~60 days. The
+`codex-refresh.sh` script handles renewal automatically:
+
+- **Schedule:** 4 AM daily (added to user crontab by setup.sh)
+- **Logic:** Checks token expiry; only refreshes if within 3 days of expiry
+- **On success:** Updates `~/.codex/auth.json` and `auth-profiles.json`,
+  restarts the gateway
+- **On failure:** Sends a Telegram alert (if configured) and exits 1
+
+To manually trigger a refresh:
+
+```bash
+~/codex-refresh.sh
+```
+
+Check the refresh log:
+
+```bash
+tail -50 ~/<botname>-codex-refresh.log
+```
+
+### Token expired (500 errors from API)
+
+Run `~/codex-refresh.sh`. If the refresh token has also expired (~60 days), re-authenticate:
+
+```bash
+openclaw onboard --auth-choice openai-codex --skip-daemon
+# Extract new tokens:
+jq -r '.tokens.access_token' ~/.codex/auth.json
+jq -r '.tokens.refresh_token' ~/.codex/auth.json
+# Update .env with new tokens and re-run setup.sh
+./setup.sh
+```
+
+---
+
 ## Troubleshooting
 
 ### systemd --user fails: "D-Bus connection refused" or "Permission denied"
@@ -265,7 +303,7 @@ ssh botname@localhost
 systemctl --user status   # Works
 ```
 
-If the user just had lingering enabled by prereqs.sh, they must log out and back in
+If the user just had lingering enabled by add-bot.sh, they must log out and back in
 before `systemctl --user` will work. This is a Linux D-Bus requirement.
 
 Diagnose:
@@ -327,100 +365,3 @@ If the watchdog keeps restarting the gateway, check:
 1. Is the port unique? Another user may have the same port
 2. Is the gateway actually unhealthy? `openclaw health`
 3. Check gateway logs: `journalctl --user -u openclaw-gateway.service -n 100`
-
----
-
-## OpenAI Codex Auth Mode
-
-Use `AUTH_MODE=openai-codex` to run the agent on ChatGPT Plus/Pro via OAuth instead of
-free-tier Nvidia NIM. The primary model becomes `openai-codex/gpt-5.3-codex`; Nvidia
-fallbacks remain active for when Codex is unavailable.
-
-**Prerequisites:** A ChatGPT Plus or Pro subscription is required.
-
-### Setup
-
-1. **Complete OAuth as the bot user** (before running setup.sh):
-
-   ```bash
-   # As the bot user (fresh SSH session):
-   openclaw onboard --auth-choice openai-codex
-   # Follow the browser prompt — this writes tokens to ~/.codex/auth.json
-   ```
-
-2. **Set AUTH_MODE in .env:**
-
-   ```bash
-   nano ~/redbot-provision/.env
-   # Set: AUTH_MODE=openai-codex
-   ```
-
-3. **Run setup.sh** (fresh run or re-run):
-
-   ```bash
-   ./setup.sh
-   ```
-
-   setup.sh will validate `~/.codex/auth.json`, render the Codex-specific
-   `openclaw.json` and `auth-profiles.json`, install `~/codex-refresh.sh`, and
-   add the daily refresh cron job.
-
-### Token Refresh
-
-OpenAI Codex access tokens last ~8 days; refresh tokens last ~60 days. The
-`codex-refresh.sh` script handles renewal automatically:
-
-- **Schedule:** 4 AM daily (added to user crontab by setup.sh)
-- **Logic:** Checks token expiry; only refreshes if within 3 days of expiry
-- **On success:** Updates `~/.codex/auth.json` and `auth-profiles.json`,
-  restarts the gateway
-- **On failure:** Sends a Telegram alert (if configured) and exits 1
-
-To manually trigger a refresh:
-
-```bash
-~/codex-refresh.sh
-```
-
-Check the refresh log:
-
-```bash
-tail -50 ~/${BOT_NAME_LOWER}-codex-refresh.log
-```
-
-### Failure Recovery
-
-If the refresh token expires (~60 days of no successful refresh), re-authenticate:
-
-```bash
-# As the bot user:
-openclaw onboard --auth-choice openai-codex
-# Then immediately run a manual refresh to populate new tokens:
-~/codex-refresh.sh
-```
-
-If `~/.codex/auth.json` is missing or corrupt:
-
-```bash
-openclaw onboard --auth-choice openai-codex
-```
-
-### Switching Auth Modes
-
-To switch from `openai-codex` back to `nvidia` (or vice versa), update `AUTH_MODE`
-in `.env` and re-run setup.sh. This re-renders `openclaw.json` and
-`auth-profiles.json` for the new mode. The gateway restarts automatically.
-
-```bash
-nano ~/redbot-provision/.env   # change AUTH_MODE=
-./setup.sh
-```
-
-Note: When switching away from `openai-codex`, the `codex-refresh.sh` cron entry
-and script are left in place but harmless (they will not be added again if
-`AUTH_MODE` is not `openai-codex`). Remove manually if desired:
-
-```bash
-crontab -l | grep -v codex-refresh | crontab -
-rm ~/codex-refresh.sh
-```

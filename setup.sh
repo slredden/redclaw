@@ -91,7 +91,7 @@ rm -f "$_safe_env"
 REQUIRED_VARS=(
     BOT_NAME BOT_USER BOT_EMOJI
     USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
-    NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY
+    OPENAI_ACCESS_TOKEN OPENAI_REFRESH_TOKEN
 )
 
 missing=()
@@ -112,11 +112,12 @@ fi
 # --- Derived variables ---
 export BOT_NAME BOT_USER BOT_EMOJI
 export USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
-export NVIDIA_API_KEY MEM0_API_KEY BRAVE_SEARCH_KEY VERCEL_AI_KEY
-export TELEGRAM_BOT_TOKEN TELEGRAM_USER_ID
+export OPENAI_ACCESS_TOKEN OPENAI_REFRESH_TOKEN
+export BRAVE_SEARCH_KEY="${BRAVE_SEARCH_KEY:-}"
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+export TELEGRAM_USER_ID="${TELEGRAM_USER_ID:-}"
 export GATEWAY_PORT="${GATEWAY_PORT:-18789}"
 export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-redbot}"
-export AUTH_MODE="${AUTH_MODE:-nvidia}"
 
 # Auto-generate gateway token if blank
 if [ -z "${GATEWAY_TOKEN:-}" ]; then
@@ -129,34 +130,8 @@ export GATEWAY_TOKEN
 BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 export BOT_NAME_LOWER
 
-# --- Codex auth validation ---
-if [ "$AUTH_MODE" = "openai-codex" ]; then
-    CODEX_AUTH="${HOME}/.codex/auth.json"
-    _at=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
-    _rt=$(jq -r '.tokens.refresh_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
-    if [ -z "$_at" ] || [ -z "$_rt" ]; then
-        info "Codex tokens missing — running: openclaw onboard --auth-choice openai-codex"
-        openclaw onboard --auth-choice openai-codex --skip-daemon
-        _at=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
-        _rt=$(jq -r '.tokens.refresh_token // empty' "$CODEX_AUTH" 2>/dev/null || true)
-        if [ -z "$_at" ] || [ -z "$_rt" ]; then
-            err "Codex auth failed — ~/.codex/auth.json still missing valid tokens"
-            exit 1
-        fi
-    fi
-    export OPENAI_ACCESS_TOKEN="$_at"
-    unset _at _rt
-    info "AUTH_MODE=openai-codex — Codex tokens verified"
-fi
-
-# --- Template selection based on AUTH_MODE ---
-if [ "$AUTH_MODE" = "openai-codex" ]; then
-    OPENCLAW_JSON_TMPL="openclaw.json.codex.tmpl"
-    AUTH_PROFILES_TMPL="auth-profiles.json.codex.tmpl"
-else
-    OPENCLAW_JSON_TMPL="openclaw.json.tmpl"
-    AUTH_PROFILES_TMPL="auth-profiles.json.tmpl"
-fi
+OPENCLAW_JSON_TMPL="openclaw.json.tmpl"
+AUTH_PROFILES_TMPL="auth-profiles.json.tmpl"
 
 if $DRY_RUN; then
     step "DRY RUN MODE — no changes will be made"
@@ -165,8 +140,6 @@ if $DRY_RUN; then
     echo "  BOT_NAME_LOWER=$BOT_NAME_LOWER"
     echo "  GATEWAY_PORT=$GATEWAY_PORT"
     echo "  GATEWAY_TOKEN=${GATEWAY_TOKEN:0:8}..."
-    echo "  AUTH_MODE=$AUTH_MODE"
-    echo "  OPENCLAW_JSON_TMPL=$OPENCLAW_JSON_TMPL"
     echo ""
 fi
 
@@ -293,6 +266,21 @@ if ! $DRY_RUN; then
     chmod 700 "${HOME_DIR}/.openclaw/credentials"
 fi
 
+# Write Codex auth.json (safe for special chars in JWT tokens)
+if ! $DRY_RUN; then
+    mkdir -p "${HOME_DIR}/.codex"
+    chmod 700 "${HOME_DIR}/.codex"
+    jq --null-input \
+        --arg at "$OPENAI_ACCESS_TOKEN" \
+        --arg rt "$OPENAI_REFRESH_TOKEN" \
+        '{"tokens": {"access_token": $at, "refresh_token": $rt}}' \
+        > "${HOME_DIR}/.codex/auth.json"
+    chmod 600 "${HOME_DIR}/.codex/auth.json"
+    ok "~/.codex/auth.json written (mode 600)"
+else
+    echo "  [dry-run] Would write ~/.codex/auth.json"
+fi
+
 # Main config
 render_template "${SCRIPT_DIR}/templates/${OPENCLAW_JSON_TMPL}" "${HOME_DIR}/.openclaw/openclaw.json"
 if ! $DRY_RUN; then
@@ -307,6 +295,15 @@ if ! $DRY_RUN; then
         chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
         info "Telegram not configured -- disabled in config (add token later to enable)"
     fi
+
+    # Disable web search if Brave key not provided
+    if [ -z "${BRAVE_SEARCH_KEY:-}" ]; then
+        jq '.tools.web.search.enabled = false' \
+            "${HOME_DIR}/.openclaw/openclaw.json" > "${HOME_DIR}/.openclaw/openclaw.json.tmp" \
+            && mv "${HOME_DIR}/.openclaw/openclaw.json.tmp" "${HOME_DIR}/.openclaw/openclaw.json"
+        chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
+        info "Brave Search not configured -- web search disabled in config"
+    fi
 fi
 
 # Auth profiles
@@ -316,35 +313,6 @@ if ! $DRY_RUN; then
     chmod 600 "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
     ok "auth-profiles.json generated (mode 600)"
 fi
-
-# ============================================================================
-# EXTENSIONS
-# ============================================================================
-
-step "Installing extensions"
-
-EXTENSIONS=(
-    "@mem0/openclaw-mem0"
-)
-
-for ext in "${EXTENSIONS[@]}"; do
-    ext_name=$(echo "$ext" | sed 's/.*\///')
-    if [ -d "${HOME_DIR}/.openclaw/extensions/${ext_name}" ]; then
-        ok "${ext_name}: already installed"
-    else
-        info "Installing ${ext_name}..."
-        if ! run openclaw plugins install "$ext" 2>/dev/null; then
-            warn "${ext_name}: install failed — removing from config"
-            # Remove plugin references so config stays valid
-            jq 'del(.plugins.entries["openclaw-mem0"]) |
-                if .plugins.slots.memory == "openclaw-mem0" then del(.plugins.slots.memory) else . end |
-                .plugins.allow = [.plugins.allow[] | select(. != "openclaw-mem0")]' \
-                "${HOME_DIR}/.openclaw/openclaw.json" > "${HOME_DIR}/.openclaw/openclaw.json.tmp" \
-                && mv "${HOME_DIR}/.openclaw/openclaw.json.tmp" "${HOME_DIR}/.openclaw/openclaw.json"
-            chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
-        fi
-    fi
-done
 
 # ============================================================================
 # GOG (Google Workspace CLI)
@@ -544,19 +512,17 @@ add_cron_if_missing "rotate-config.sh" \
 add_cron_if_missing "watchdog.sh" \
     "*/5 * * * * ${HOME_DIR}/watchdog.sh"
 
-# Codex token auto-refresh (only in openai-codex mode)
-if [ "$AUTH_MODE" = "openai-codex" ]; then
-    CODEX_REFRESH_DST="${HOME_DIR}/codex-refresh.sh"
-    if [ ! -f "$CODEX_REFRESH_DST" ]; then
-        render_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST"
-        run chmod 700 "$CODEX_REFRESH_DST"
-        ok "codex-refresh.sh → ~/codex-refresh.sh"
-    else
-        ok "codex-refresh.sh: already exists (preserved)"
-    fi
-    add_cron_if_missing "codex-refresh.sh" \
-        "0 4 * * * ${HOME_DIR}/codex-refresh.sh >> ${HOME_DIR}/${BOT_NAME_LOWER}-codex-refresh.log 2>&1"
+# Codex token auto-refresh
+CODEX_REFRESH_DST="${HOME_DIR}/codex-refresh.sh"
+if [ ! -f "$CODEX_REFRESH_DST" ]; then
+    render_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST"
+    run chmod 700 "$CODEX_REFRESH_DST"
+    ok "codex-refresh.sh → ~/codex-refresh.sh"
+else
+    ok "codex-refresh.sh: already exists (preserved)"
 fi
+add_cron_if_missing "codex-refresh.sh" \
+    "0 4 * * * ${HOME_DIR}/codex-refresh.sh >> ${HOME_DIR}/${BOT_NAME_LOWER}-codex-refresh.log 2>&1"
 
 # Openclaw internal cron jobs
 render_template "${SCRIPT_DIR}/cron/jobs.json.tmpl" "${HOME_DIR}/.openclaw/cron/jobs.json"

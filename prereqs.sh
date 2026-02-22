@@ -3,8 +3,8 @@ set -euo pipefail
 
 # ============================================================================
 # Openclaw System Prerequisites
-# Run as an admin user (sudo required). Installs system-level dependencies.
-# After this completes, switch to the standard user and run setup.sh.
+# Run as an admin user (sudo required). Installs system-level dependencies
+# once per server. Run add-bot.sh to set up individual bot user accounts.
 # ============================================================================
 
 # --- Colors ---
@@ -22,27 +22,31 @@ step()  { echo -e "\n${GREEN}==>${NC} $1"; }
 
 # --- Argument parsing ---
 usage() {
-    echo "Usage: $(basename "$0") --bot-user <username> [--skip-system]"
+    echo "Usage: $(basename "$0") [--force]"
     echo ""
-    echo "Installs system prerequisites, then copies this repo to the bot user's home."
+    echo "Installs system prerequisites for Openclaw (Node.js, tools, openclaw)."
+    echo "Safe to run multiple times — skips steps already completed."
     echo ""
     echo "Options:"
-    echo "  --bot-user <username>   Bot user account to prepare (required)"
-    echo "  --skip-system           Skip system-wide steps (Node.js, tools, openclaw install)"
-    echo "                          Use when adding a second bot user to an existing server"
-    echo "  -h, --help              Show this help message"
+    echo "  --force     Re-run even if prerequisites were already installed"
+    echo "  -h, --help  Show this help message"
+    echo ""
+    echo "After this completes, use add-bot.sh to set up each bot user account:"
+    echo "  sudo ./add-bot.sh --bot-user <username>"
     exit 1
 }
 
-BOT_USER=""
-SKIP_SYSTEM=false
+FORCE=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --bot-user)
-            [[ -z "${2:-}" ]] && { err "--bot-user requires a username"; usage; }
-            BOT_USER="$2"; shift 2 ;;
-        --skip-system)
-            SKIP_SYSTEM=true; shift ;;
+        --force)
+            FORCE=true; shift ;;
+        --bot-user|--skip-system)
+            err "'$1' is no longer a valid option for prereqs.sh."
+            err "Per-user setup has moved to add-bot.sh:"
+            err "  sudo ./add-bot.sh --bot-user <username>"
+            exit 1 ;;
         -h|--help)
             usage ;;
         *)
@@ -50,19 +54,30 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -z "$BOT_USER" ]] && { err "Missing required argument: --bot-user <username>"; usage; }
-
-if ! id "$BOT_USER" &>/dev/null; then
-    err "User '$BOT_USER' does not exist. Create it first (adduser $BOT_USER)."
-    exit 1
-fi
-
-BOT_USER_HOME=$(getent passwd "$BOT_USER" | cut -d: -f6)
-
 # --- Check sudo access ---
 if ! sudo -v 2>/dev/null; then
     err "This script requires sudo access. Run as an admin user."
     exit 1
+fi
+
+# --- Idempotency sentinel ---
+SENTINEL="/etc/openclaw-prereqs-done"
+SENTINEL_VERSION="1"
+
+if [ -f "$SENTINEL" ] && ! $FORCE; then
+    echo ""
+    echo "System prerequisites already installed."
+    grep -E "version|date" "$SENTINEL" 2>/dev/null | sed 's/^/  /'
+    echo ""
+    echo "  openclaw: $(openclaw --version 2>/dev/null | head -1)"
+    echo "  node:     $(node --version 2>/dev/null)"
+    echo ""
+    echo "To re-run anyway: sudo ./prereqs.sh --force"
+    echo ""
+    echo "Next: set up a bot user account:"
+    echo "  sudo ./add-bot.sh --bot-user <username>"
+    echo ""
+    exit 0
 fi
 
 # --- Check OS ---
@@ -79,16 +94,6 @@ if [ -f /etc/os-release ]; then
 else
     warn "Cannot detect OS. Proceeding anyway."
 fi
-
-# ============================================================================
-# SYSTEM-WIDE STEPS (Node.js, tools, Openclaw)
-# Skipped with --skip-system when adding a second bot user to an existing server.
-# ============================================================================
-
-if $SKIP_SYSTEM; then
-    step "Skipping system-wide steps (--skip-system)"
-    info "Assuming Node.js, system tools, and Openclaw are already installed."
-else
 
 # --- Node.js >= 22 ---
 step "Checking Node.js"
@@ -178,45 +183,13 @@ else
     ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
 fi
 
-fi  # end: if ! $SKIP_SYSTEM
-
-# ============================================================================
-# PER-USER STEPS (lingering, repo copy)
-# These always run regardless of --skip-system.
-# ============================================================================
-
-# ============================================================================
-# Enable systemd lingering for the bot user
-# ============================================================================
-
-step "Enabling systemd lingering"
-
-if loginctl show-user "$BOT_USER" --property=Linger 2>/dev/null | grep -q "Linger=yes"; then
-    ok "Lingering already enabled for ${BOT_USER}"
-else
-    sudo loginctl enable-linger "$BOT_USER"
-    ok "Lingering enabled for ${BOT_USER} (systemd user services will persist across logouts)"
-fi
-
-# ============================================================================
-# Copy repo to bot user's home
-# ============================================================================
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST_DIR="${BOT_USER_HOME}/redbot-provision"
-
-step "Copying repo to ${DEST_DIR}"
-
-if [[ -d "$DEST_DIR" ]]; then
-    warn "Destination already exists — replacing it"
-    sudo rm -rf "$DEST_DIR"
-fi
-
-sudo mkdir -p "$DEST_DIR"
-tar -C "$SCRIPT_DIR" --exclude='.git' --exclude='.env' --exclude='.claude' -cf - . \
-    | sudo tar -C "$DEST_DIR" -xf -
-sudo chown -R "${BOT_USER}:${BOT_USER}" "$DEST_DIR"
-ok "Repo copied to ${DEST_DIR}"
+# --- Write sentinel ---
+sudo tee "$SENTINEL" > /dev/null <<EOF
+version=${SENTINEL_VERSION}
+date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+node=$(node --version)
+openclaw=$(openclaw --version 2>/dev/null | head -1)
+EOF
 
 # ============================================================================
 # SUMMARY
@@ -224,53 +197,20 @@ ok "Repo copied to ${DEST_DIR}"
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║              Prerequisites Installed                       ║"
+echo "║         System Prerequisites Installed                    ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
-if ! $SKIP_SYSTEM; then
-    echo "  Node.js:   $(node --version)"
-    echo "  npm:       $(npm --version)"
-    echo "  openclaw:  $(openclaw --version 2>/dev/null | head -1) (system-wide)"
-    echo "  jq:        $(jq --version 2>/dev/null)"
-    echo "  curl:      $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
-    echo "  envsubst:  $(envsubst --version 2>/dev/null | head -1 || echo 'available')"
-    echo "  openssl:   $(openssl version 2>/dev/null)"
-else
-    echo "  System-wide steps skipped (--skip-system)"
-    echo "  openclaw:  $(openclaw --version 2>/dev/null | head -1) (existing system-wide install)"
-fi
+echo "  Node.js:   $(node --version)"
+echo "  npm:       $(npm --version)"
+echo "  openclaw:  $(openclaw --version 2>/dev/null | head -1) (system-wide)"
+echo "  jq:        $(jq --version 2>/dev/null)"
+echo "  curl:      $(curl --version 2>/dev/null | head -1 | awk '{print $2}')"
+echo "  envsubst:  $(envsubst --version 2>/dev/null | head -1 || echo 'available')"
+echo "  openssl:   $(openssl version 2>/dev/null)"
 echo ""
-echo "Repo copied to: ${DEST_DIR}"
+echo "Next: set up each bot user account:"
+echo "  sudo ./add-bot.sh --bot-user <username>"
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                   IMPORTANT                                ║"
-echo "╚════════════════════════════════════════════════════════════╝"
+echo "To add a user that doesn't exist yet:"
+echo "  sudo ./add-bot.sh --bot-user <username> --create-user"
 echo ""
-echo "Systemd lingering was just enabled for ${BOT_USER}."
-echo "For systemd user services to work properly, ${BOT_USER} must"
-echo "log out and back in (or reboot) before running setup.sh."
-echo ""
-echo "Next steps:"
-echo "  1. Log in as the bot user (fresh login session):"
-echo "     exit        # if currently su'd"
-echo "     ssh ${BOT_USER}@localhost"
-echo "     (or: log out completely and SSH back in as ${BOT_USER})"
-echo ""
-echo "  2. Set up the environment:"
-echo "     cd ~/redbot-provision"
-echo "     cp .env.example .env"
-echo "     nano .env"
-if $SKIP_SYSTEM; then
-echo ""
-echo "     NOTE: This is an additional bot user on an existing server."
-echo "     GATEWAY_PORT must be unique — check what's in use first:"
-echo "       ss -tuln | grep 187"
-echo "     Then set a different port (e.g., 18790, 18791, ...) in .env."
-fi
-echo ""
-echo "  3. Run the setup script:"
-echo "     ./setup.sh"
-echo ""
-# NOTE: For AUTH_MODE=openai-codex, the bot user must complete OAuth before running setup.sh:
-#   As the bot user: openclaw onboard --auth-choice openai-codex
-# This stores tokens in ~/.codex/auth.json which setup.sh will pick up automatically.
