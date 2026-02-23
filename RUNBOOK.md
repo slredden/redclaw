@@ -36,10 +36,17 @@ Operational reference for managing Openclaw bot users on a shared server.
 
 ## First Server Setup
 
-### 1. Install system prerequisites (admin, once)
+### 1. Get the repo and install system prerequisites (admin, once)
 
 ```bash
-# As an admin user (with sudo):
+# Option A — Git clone:
+git clone git@github.com:slredden/redclaw.git ~/redclaw
+
+# Option B — Download as zip (no git required):
+curl -L https://github.com/slredden/redclaw/archive/refs/heads/main.zip -o /tmp/redclaw.zip
+unzip /tmp/redclaw.zip -d ~/ && mv ~/redclaw-main ~/redclaw
+
+# Then install prerequisites:
 cd ~/redclaw
 sudo ./prereqs.sh
 ```
@@ -76,8 +83,8 @@ ssh botname@localhost
 openclaw onboard --auth-choice openai-codex --skip-daemon
 # Follow the OAuth flow in your browser.
 # Then extract the tokens:
-jq -r '.tokens.access_token' ~/.codex/auth.json
-jq -r '.tokens.refresh_token' ~/.codex/auth.json
+jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
+jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
 ```
 
 ### 5. Configure and run setup.sh
@@ -279,8 +286,8 @@ Run `~/codex-refresh.sh`. If the refresh token has also expired (~60 days), re-a
 ```bash
 openclaw onboard --auth-choice openai-codex --skip-daemon
 # Extract new tokens:
-jq -r '.tokens.access_token' ~/.codex/auth.json
-jq -r '.tokens.refresh_token' ~/.codex/auth.json
+jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
+jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
 # Update .env with new tokens and re-run setup.sh
 ./setup.sh
 ```

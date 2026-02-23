@@ -14,10 +14,19 @@ Reproducible setup for a personal AI assistant powered by [Openclaw](https://ope
 
 ## Quick Start
 
-### 1. Clone the repo (as admin)
+### 1. Get the repo (as admin)
 
+**Option A — Git clone:**
 ```bash
 git clone git@github.com:slredden/redclaw.git ~/redclaw
+cd ~/redclaw
+```
+
+**Option B — Download as zip (no git required):**
+```bash
+curl -L https://github.com/slredden/redclaw/archive/refs/heads/main.zip -o /tmp/redclaw.zip
+unzip /tmp/redclaw.zip -d ~/
+mv ~/redclaw-main ~/redclaw
 cd ~/redclaw
 ```
 
@@ -64,8 +73,8 @@ Follow the browser prompt (or open the URL on another machine if headless). When
 
 ```bash
 # Extract the tokens and save them somewhere safe (password manager recommended)
-jq -r '.tokens.access_token' ~/.codex/auth.json
-jq -r '.tokens.refresh_token' ~/.codex/auth.json
+jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
+jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
 ```
 
 ### 6. Configure and run setup
