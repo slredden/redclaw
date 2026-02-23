@@ -94,28 +94,39 @@ cp .env.example .env
 Extract the tokens and paste them into `.env`:
 
 ```bash
-# Print the access token (copy the output):
-jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+# Print the access token — copy the output into OPENAI_ACCESS_TOKEN in .env:
+jq -r '.profiles["openai-codex:default"].access' \
+  ~/.openclaw/agents/main/agent/auth-profiles.json
 
-# Print the refresh token (copy the output):
-jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
+# Print the refresh token — copy the output into OPENAI_REFRESH_TOKEN in .env:
+jq -r '.profiles["openai-codex:default"].refresh' \
+  ~/.openclaw/agents/main/agent/auth-profiles.json
 ```
 
-Open `.env` and paste the tokens into `OPENAI_ACCESS_TOKEN` and `OPENAI_REFRESH_TOKEN`.
-Fill in the other required fields (bot name, email, gateway port), then run setup:
+Open `.env` and fill in all fields. See `README.md` Step 6 for a full table
+of required, optional, and default fields. If you want Telegram or Brave
+Search, fill those in now — they're just `.env` fields, not post-setup steps.
 
 ```bash
 nano .env
 ./setup.sh
 ```
 
-### 6. Complete manual steps
+**Save the gateway URL printed at the end** — it contains your auth token for
+dashboard access. If you left `GATEWAY_TOKEN` blank, copy the generated token
+back into `.env` so it stays the same on future runs.
 
-Follow the instructions printed by `setup.sh`:
-- Google OAuth via gog (place client secret, run `gog auth add`)
-- Telegram pairing (if configured)
-- Reload shell: `source ~/.bashrc`
-- Verify: `openclaw health` and `~/status.sh`
+### 6. Post-setup verification
+
+```bash
+source ~/.bashrc
+openclaw health
+~/status.sh
+```
+
+If you configured Telegram: `openclaw telegram pair`
+
+For Google Workspace setup, see README.md → "After Setup → Google Workspace".
 
 ---
 
@@ -276,8 +287,8 @@ OpenAI Codex access tokens last ~8 days; refresh tokens last ~60 days. The
 
 - **Schedule:** 4 AM daily (added to user crontab by setup.sh)
 - **Logic:** Checks token expiry; only refreshes if within 3 days of expiry
-- **On success:** Updates `~/.codex/auth.json` and `auth-profiles.json`,
-  restarts the gateway
+- **On success:** Updates both `~/.codex/auth.json` and `auth-profiles.json`
+  atomically, then restarts the gateway
 - **On failure:** Sends a Telegram alert (if configured) and exits 1
 
 To manually trigger a refresh:
@@ -308,6 +319,63 @@ cd ~/redbot-provision
 nano .env
 ./setup.sh
 ```
+
+---
+
+## Changing Configuration
+
+To add or change features after initial setup, edit `.env` and re-run `setup.sh`:
+
+```bash
+cd ~/redbot-provision
+nano .env          # Add TELEGRAM_BOT_TOKEN, BRAVE_SEARCH_KEY, etc.
+./setup.sh
+```
+
+### What setup.sh does on re-run
+
+| Action | Files |
+|--------|-------|
+| **Overwrites** (re-rendered from `.env`) | `openclaw.json`, `~/.codex/auth.json`, `USER.md`, `IDENTITY.md`, systemd service file |
+| **Merges** (existing values preserved) | `auth-profiles.json` |
+| **Preserves** (never touched) | `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, `TOOLS.md` |
+| **Idempotent** (safe to re-run) | cron jobs, `.bashrc` block, gog install, automation scripts |
+
+### GATEWAY_TOKEN caveat
+
+If `GATEWAY_TOKEN` is blank in `.env`, a new random token is generated each run.
+This changes your dashboard URL. Save the token from the first run back into `.env`.
+
+### Token files
+
+Two separate token files exist for different consumers:
+
+- **`~/.codex/auth.json`** — Used by the Codex CLI and `codex-refresh.sh`
+- **`~/.openclaw/agents/main/agent/auth-profiles.json`** — Used by the Openclaw gateway
+
+Both are updated atomically by `~/codex-refresh.sh` during daily token refresh.
+
+---
+
+## SFTP Offsite Backups
+
+The daily backup script (`~/backup.sh`) supports optional SFTP upload.
+SFTP is configured via a separate config file (not `.env`).
+
+**Config file:** `~/.config/<botname-lower>-backup.conf`
+
+```bash
+# Example: ~/.config/mybot-backup.conf
+SFTP_HOST=backup.example.com
+SFTP_PORT=22
+SFTP_USER=backupuser
+SFTP_PASS=secret              # Leave blank for key-based auth
+SFTP_KEY=~/.ssh/id_backup     # Leave blank for password auth
+SFTP_REMOTE_PATH=/backups
+SFTP_RETENTION_DAYS=30
+```
+
+If this file doesn't exist, backups are stored locally only (7-day retention).
 
 ---
 
@@ -389,3 +457,14 @@ If the watchdog keeps restarting the gateway, check:
 1. Is the port unique? Another user may have the same port
 2. Is the gateway actually unhealthy? `openclaw health`
 3. Check gateway logs: `journalctl --user -u openclaw-gateway.service -n 100`
+
+### Config changes lost after re-run
+
+`openclaw.json` is re-rendered from `.env` every time `setup.sh` runs. If you
+edited `openclaw.json` directly, those changes are overwritten. Always edit
+`.env` instead and re-run `setup.sh`.
+
+### Dashboard URL changed after re-run
+
+If `GATEWAY_TOKEN` was blank in `.env`, a new random token was generated. Save
+the token printed during setup back into `.env` to keep the same URL.
