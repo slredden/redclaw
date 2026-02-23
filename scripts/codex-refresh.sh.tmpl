@@ -121,8 +121,8 @@ log "[OK] ~/.codex/auth.json updated"
 
 # --- Update auth-profiles.json atomically ---
 if [ -f "$PROFILES_JSON" ]; then
-    jq --arg at "$NEW_ACCESS_TOKEN" \
-        '.profiles["openai-codex:default"].key = $at' \
+    jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" \
+        '.profiles["openai-codex:default"].access = $at | .profiles["openai-codex:default"].refresh = $rt' \
         "$PROFILES_JSON" > "${PROFILES_JSON}.tmp" \
         && mv "${PROFILES_JSON}.tmp" "$PROFILES_JSON"
     chmod 600 "$PROFILES_JSON"

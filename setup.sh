@@ -131,7 +131,6 @@ BOT_NAME_LOWER=$(echo "$BOT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 export BOT_NAME_LOWER
 
 OPENCLAW_JSON_TMPL="openclaw.json.tmpl"
-AUTH_PROFILES_TMPL="auth-profiles.json.tmpl"
 
 if $DRY_RUN; then
     step "DRY RUN MODE — no changes will be made"
@@ -306,12 +305,46 @@ if ! $DRY_RUN; then
     fi
 fi
 
-# Auth profiles
-render_template "${SCRIPT_DIR}/templates/${AUTH_PROFILES_TMPL}" \
-    "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
+# Auth profiles — use jq to safely inject tokens (JWTs contain special chars)
+AUTH_PROFILES="${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
 if ! $DRY_RUN; then
-    chmod 600 "${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
-    ok "auth-profiles.json generated (mode 600)"
+    if [ -f "$AUTH_PROFILES" ]; then
+        # Merge into existing file — update the openai-codex profile, preserve others
+        jq --arg at "$OPENAI_ACCESS_TOKEN" \
+           --arg rt "$OPENAI_REFRESH_TOKEN" \
+           '.profiles["openai-codex:default"] = {
+               "type": "oauth",
+               "provider": "openai-codex",
+               "access": $at,
+               "refresh": $rt
+           } | .lastGood["openai-codex"] = "openai-codex:default"' \
+           "$AUTH_PROFILES" > "${AUTH_PROFILES}.tmp" \
+           && mv "${AUTH_PROFILES}.tmp" "$AUTH_PROFILES"
+        ok "auth-profiles.json updated (merged Codex tokens, mode 600)"
+    else
+        # Create fresh file
+        jq --null-input \
+           --arg at "$OPENAI_ACCESS_TOKEN" \
+           --arg rt "$OPENAI_REFRESH_TOKEN" \
+           '{
+               "version": 1,
+               "profiles": {
+                   "openai-codex:default": {
+                       "type": "oauth",
+                       "provider": "openai-codex",
+                       "access": $at,
+                       "refresh": $rt
+                   }
+               },
+               "lastGood": {
+                   "openai-codex": "openai-codex:default"
+               }
+           }' > "$AUTH_PROFILES"
+        ok "auth-profiles.json generated (mode 600)"
+    fi
+    chmod 600 "$AUTH_PROFILES"
+else
+    echo "  [dry-run] Would write auth-profiles.json"
 fi
 
 # ============================================================================
