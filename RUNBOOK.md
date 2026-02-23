@@ -83,8 +83,8 @@ ssh botname@localhost
 openclaw onboard --auth-choice openai-codex --skip-daemon
 # Follow the OAuth flow in your browser.
 # Then extract the tokens:
-jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
-jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
+jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
 ```
 
 ### 5. Configure and run setup.sh
@@ -286,8 +286,8 @@ Run `~/codex-refresh.sh`. If the refresh token has also expired (~60 days), re-a
 ```bash
 openclaw onboard --auth-choice openai-codex --skip-daemon
 # Extract new tokens:
-jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
-jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
+jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
 # Update .env with new tokens and re-run setup.sh
 ./setup.sh
 ```

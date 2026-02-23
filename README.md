@@ -73,8 +73,8 @@ Follow the browser prompt (or open the URL on another machine if headless). When
 
 ```bash
 # Extract the tokens and save them somewhere safe (password manager recommended)
-jq -r '.["openai-codex"].access' ~/.openclaw/credentials/oauth.json
-jq -r '.["openai-codex"].refresh' ~/.openclaw/credentials/oauth.json
+jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
 ```
 
 ### 6. Configure and run setup
