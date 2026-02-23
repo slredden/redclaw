@@ -69,20 +69,29 @@ Run the OpenAI OAuth flow as the bot user:
 openclaw onboard --auth-choice openai-codex --skip-daemon
 ```
 
-Follow the browser prompt (or open the URL on another machine if headless). When done:
-
-```bash
-# Extract the tokens and save them somewhere safe (password manager recommended)
-jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
-jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
-```
+Follow the browser prompt (or open the URL on another machine if headless).
 
 ### 6. Configure and run setup
 
 ```bash
 cd ~/redbot-provision
 cp .env.example .env
-nano .env       # Fill in tokens, bot identity, email, gateway port
+```
+
+Extract your tokens and paste them into `.env`:
+
+```bash
+# Print the access token (copy the output):
+jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+
+# Print the refresh token (copy the output):
+jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
+```
+
+Open `.env` in an editor and paste the tokens into `OPENAI_ACCESS_TOKEN` and `OPENAI_REFRESH_TOKEN`. Fill in the other required fields (bot name, email, gateway port), then run setup:
+
+```bash
+nano .env
 ./setup.sh
 ```
 

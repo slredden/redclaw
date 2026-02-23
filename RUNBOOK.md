@@ -82,9 +82,6 @@ ssh botname@localhost
 ```bash
 openclaw onboard --auth-choice openai-codex --skip-daemon
 # Follow the OAuth flow in your browser.
-# Then extract the tokens:
-jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
-jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
 ```
 
 ### 5. Configure and run setup.sh
@@ -92,7 +89,23 @@ jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/
 ```bash
 cd ~/redbot-provision
 cp .env.example .env
-nano .env          # Fill in tokens, bot name, email, gateway port
+```
+
+Extract the tokens and paste them into `.env`:
+
+```bash
+# Print the access token (copy the output):
+jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
+
+# Print the refresh token (copy the output):
+jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
+```
+
+Open `.env` and paste the tokens into `OPENAI_ACCESS_TOKEN` and `OPENAI_REFRESH_TOKEN`.
+Fill in the other required fields (bot name, email, gateway port), then run setup:
+
+```bash
+nano .env
 ./setup.sh
 ```
 
@@ -285,10 +298,14 @@ Run `~/codex-refresh.sh`. If the refresh token has also expired (~60 days), re-a
 
 ```bash
 openclaw onboard --auth-choice openai-codex --skip-daemon
-# Extract new tokens:
+
+# Print the new tokens (copy each output into .env):
 jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
 jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
-# Update .env with new tokens and re-run setup.sh
+
+# Paste into OPENAI_ACCESS_TOKEN and OPENAI_REFRESH_TOKEN in .env, then:
+cd ~/redbot-provision
+nano .env
 ./setup.sh
 ```
 
