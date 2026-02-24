@@ -118,6 +118,10 @@ export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export TELEGRAM_USER_ID="${TELEGRAM_USER_ID:-}"
 export GATEWAY_PORT="${GATEWAY_PORT:-18789}"
 export GOG_KEYRING_PASSWORD="${GOG_KEYRING_PASSWORD:-redbot}"
+export BOT_CREATURE="${BOT_CREATURE:-AI assistant}"
+export BOT_VIBE="${BOT_VIBE:-helpful and sharp}"
+export USER_PRONOUNS="${USER_PRONOUNS:-}"
+export USER_CONTEXT="${USER_CONTEXT:-}"
 
 # Auto-generate gateway token if blank
 if [ -z "${GATEWAY_TOKEN:-}" ]; then
@@ -143,6 +147,43 @@ if $DRY_RUN; then
 fi
 
 HOME_DIR="/home/${BOT_USER}"
+
+# --- Interactive personalization (only when stdin is a terminal) ---
+personalize_bot() {
+    if [[ ! -t 0 ]] || $DRY_RUN; then
+        return
+    fi
+
+    echo ""
+    step "Personalize your bot (press Enter to skip any question)"
+    echo ""
+
+    local answer
+
+    read -r -p "  Bot creature type (e.g., \"digital familiar\", \"space lobster\") [${BOT_CREATURE}]: " answer
+    if [ -n "$answer" ]; then
+        export BOT_CREATURE="$answer"
+    fi
+
+    read -r -p "  Bot vibe/personality (e.g., \"fun but sharp\", \"calm and precise\") [${BOT_VIBE}]: " answer
+    if [ -n "$answer" ]; then
+        export BOT_VIBE="$answer"
+    fi
+
+    read -r -p "  Your pronouns (e.g., he/him, she/her, they/them) [${USER_PRONOUNS:-none}]: " answer
+    if [ -n "$answer" ]; then
+        export USER_PRONOUNS="$answer"
+    fi
+
+    read -r -p "  Short context about yourself for your bot [${USER_CONTEXT:-none}]: " answer
+    if [ -n "$answer" ]; then
+        export USER_CONTEXT="$answer"
+    fi
+
+    echo ""
+}
+
+personalize_bot
 
 # --- Helper: run or print command ---
 run() {
@@ -409,15 +450,34 @@ run mkdir -p "${WORKSPACE}/skills"
 render_template "${SCRIPT_DIR}/workspace/USER.md.tmpl" "${WORKSPACE}/USER.md"
 render_template "${SCRIPT_DIR}/workspace/IDENTITY.md.tmpl" "${WORKSPACE}/IDENTITY.md"
 
-# Copy static files (only if not already present, to preserve customizations)
-for file in SOUL.md AGENTS.md HEARTBEAT.md; do
+# Copy SOUL.md and AGENTS.md from Openclaw's installed templates (upstream defaults)
+OPENCLAW_TEMPLATES="/usr/lib/node_modules/openclaw/docs/reference/templates"
+
+for file in SOUL.md AGENTS.md; do
     if [ ! -f "${WORKSPACE}/${file}" ]; then
-        run cp "${SCRIPT_DIR}/workspace/${file}" "${WORKSPACE}/${file}"
-        ok "${file}: copied"
+        if [ -f "${OPENCLAW_TEMPLATES}/${file}" ]; then
+            if $DRY_RUN; then
+                echo "  [dry-run] Would copy ${file} from Openclaw defaults"
+            else
+                # Strip YAML front matter (--- block) from Openclaw defaults
+                sed '1{/^---$/!b};1,/^---$/d' "${OPENCLAW_TEMPLATES}/${file}" > "${WORKSPACE}/${file}"
+            fi
+            ok "${file}: copied from Openclaw defaults"
+        else
+            warn "${file}: Openclaw template not found at ${OPENCLAW_TEMPLATES}/${file}"
+        fi
     else
         ok "${file}: already exists (preserved)"
     fi
 done
+
+# Copy HEARTBEAT.md from repo (Openclaw has no default for this)
+if [ ! -f "${WORKSPACE}/HEARTBEAT.md" ]; then
+    run cp "${SCRIPT_DIR}/workspace/HEARTBEAT.md" "${WORKSPACE}/HEARTBEAT.md"
+    ok "HEARTBEAT.md: copied"
+else
+    ok "HEARTBEAT.md: already exists (preserved)"
+fi
 
 # Render TOOLS.md from template (only if not already present, to preserve customizations)
 if [ ! -f "${WORKSPACE}/TOOLS.md" ]; then
