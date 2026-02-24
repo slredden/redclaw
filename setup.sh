@@ -164,6 +164,20 @@ render_template() {
     fi
 }
 
+# --- Helper: envsubst ONLY listed variables (safe for shell scripts) ---
+# Usage: render_script_template src dst '$VAR1 $VAR2 $VAR3'
+# Prevents envsubst from destroying the script's own $VAR references.
+render_script_template() {
+    local src="$1"
+    local dst="$2"
+    local vars="$3"
+    if $DRY_RUN; then
+        echo "  [dry-run] envsubst '$vars' < $src > $dst"
+    else
+        envsubst "$vars" < "$src" > "$dst"
+    fi
+}
+
 # ============================================================================
 # PREREQUISITES (must be installed by admin via prereqs.sh)
 # ============================================================================
@@ -371,11 +385,12 @@ else
     else
         info "Downloading gog v${GOG_VERSION}..."
         mkdir -p "$(dirname "$GOG_BIN")"
-        curl -fsSL "$GOG_URL" -o /tmp/gogcli.tar.gz
-        tar -xzf /tmp/gogcli.tar.gz -C /tmp/ gog
-        mv /tmp/gog "$GOG_BIN"
+        GOG_TMP=$(mktemp -d)
+        curl -fsSL "$GOG_URL" -o "${GOG_TMP}/gogcli.tar.gz"
+        tar -xzf "${GOG_TMP}/gogcli.tar.gz" -C "${GOG_TMP}/" gog
+        mv "${GOG_TMP}/gog" "$GOG_BIN"
         chmod +x "$GOG_BIN"
-        rm -f /tmp/gogcli.tar.gz
+        rm -rf "$GOG_TMP"
         ok "gog installed: $($GOG_BIN --version 2>/dev/null | head -1)"
     fi
 fi
@@ -427,10 +442,12 @@ ok "Workspace ready"
 step "Installing automation scripts"
 
 # Scripts that go to ~/
+# Use render_script_template to avoid envsubst destroying runtime shell variables.
+SCRIPT_TMPL_VARS='$BOT_NAME $BOT_NAME_LOWER $BOT_USER $GATEWAY_PORT'
 for script in backup.sh watchdog.sh status.sh; do
     dst="${HOME_DIR}/${script}"
     if [ ! -f "$dst" ]; then
-        render_template "${SCRIPT_DIR}/scripts/${script}" "$dst"
+        render_script_template "${SCRIPT_DIR}/scripts/${script}" "$dst" "$SCRIPT_TMPL_VARS"
         run chmod +x "$dst"
         ok "${script} → ~/${script}"
     else
@@ -438,10 +455,10 @@ for script in backup.sh watchdog.sh status.sh; do
     fi
 done
 
-# rotate-config goes to ~/.openclaw/
+# rotate-config goes to ~/.openclaw/ (no template vars — plain copy)
 dst="${HOME_DIR}/.openclaw/rotate-config.sh"
 if [ ! -f "$dst" ]; then
-    render_template "${SCRIPT_DIR}/scripts/rotate-config.sh" "$dst"
+    run cp "${SCRIPT_DIR}/scripts/rotate-config.sh" "$dst"
     run chmod +x "$dst"
     ok "rotate-config.sh → ~/.openclaw/rotate-config.sh"
 else
@@ -548,7 +565,8 @@ add_cron_if_missing "watchdog.sh" \
 # Codex token auto-refresh
 CODEX_REFRESH_DST="${HOME_DIR}/codex-refresh.sh"
 if [ ! -f "$CODEX_REFRESH_DST" ]; then
-    render_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST"
+    render_script_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST" \
+        '$BOT_NAME $BOT_NAME_LOWER $TELEGRAM_BOT_TOKEN $TELEGRAM_USER_ID'
     run chmod 700 "$CODEX_REFRESH_DST"
     ok "codex-refresh.sh → ~/codex-refresh.sh"
 else

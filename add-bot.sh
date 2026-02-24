@@ -77,6 +77,9 @@ if $CREATE_USER; then
     else
         sudo adduser --disabled-password --gecos "" "$BOT_USER"
         ok "User '${BOT_USER}' created"
+        info "Setting password for ${BOT_USER} (needed for SSH login)..."
+        sudo passwd "$BOT_USER"
+        ok "Password set for ${BOT_USER}"
     fi
 fi
 
