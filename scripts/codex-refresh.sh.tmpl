@@ -110,6 +110,18 @@ if [ -z "$NEW_ACCESS_TOKEN" ] || [ -z "$NEW_REFRESH_TOKEN" ]; then
     exit 1
 fi
 
+# --- Decode exp from the NEW access token (needed for auth-profiles.json expires field) ---
+NEW_JWT_PAYLOAD=$(echo "$NEW_ACCESS_TOKEN" | cut -d. -f2)
+NEW_PADDED=$(echo "$NEW_JWT_PAYLOAD" | tr '_-' '/+' | awk '{ n=length($0)%4; if(n==2) print $0"=="; else if(n==3) print $0"="; else print $0 }')
+NEW_EXP=$(echo "$NEW_PADDED" | base64 -d 2>/dev/null | jq -r '.exp // empty' 2>/dev/null || true)
+# Convert to milliseconds for auth-profiles.json; default to 10 days if decode fails
+if [ -n "$NEW_EXP" ]; then
+    NEW_EXPIRES_MS=$(( NEW_EXP * 1000 ))
+else
+    NEW_EXPIRES_MS=$(( ($(date '+%s') + 864000) * 1000 ))
+    log "[WARN] Could not decode exp from new access token — using 10-day default"
+fi
+
 # --- Update ~/.codex/auth.json atomically ---
 jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" --arg ts "$(date -Iseconds)" \
     '.tokens.access_token = $at | .tokens.refresh_token = $rt | .last_refresh = $ts' \
@@ -120,13 +132,16 @@ chmod 600 "$AUTH_JSON"
 log "[OK] ~/.codex/auth.json updated"
 
 # --- Update auth-profiles.json atomically ---
+# IMPORTANT: Must also update 'expires' (ms epoch) so the gateway doesn't try its
+# own auto-refresh before the next cron run. The gateway's internal refresh would
+# consume the single-use refresh token and desync the two auth files.
 if [ -f "$PROFILES_JSON" ]; then
-    jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" \
-        '.profiles["openai-codex:default"].access = $at | .profiles["openai-codex:default"].refresh = $rt' \
+    jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" --argjson exp "$NEW_EXPIRES_MS" \
+        '.profiles["openai-codex:default"].access = $at | .profiles["openai-codex:default"].refresh = $rt | .profiles["openai-codex:default"].expires = $exp' \
         "$PROFILES_JSON" > "${PROFILES_JSON}.tmp" \
         && mv "${PROFILES_JSON}.tmp" "$PROFILES_JSON"
     chmod 600 "$PROFILES_JSON"
-    log "[OK] auth-profiles.json updated"
+    log "[OK] auth-profiles.json updated (expires=$(date -d @$((NEW_EXPIRES_MS / 1000)) -Iseconds))"
 else
     log "[WARN] $PROFILES_JSON not found — skipping profile update"
 fi
