@@ -6,6 +6,7 @@
 set -euo pipefail
 
 AUTH_JSON="${HOME}/.codex/auth.json"
+GATEWAY_AUTH_JSON="${HOME}/.openclaw/agents/main/agent/auth.json"
 PROFILES_JSON="${HOME}/.openclaw/agents/main/agent/auth-profiles.json"
 LOG="${HOME}/${BOT_NAME_LOWER}-codex-refresh.log"
 CLIENT_ID="app_EMoamEEZ73f0CkXaXp7hrann"
@@ -144,6 +145,18 @@ if [ -f "$PROFILES_JSON" ]; then
     log "[OK] auth-profiles.json updated (expires=$(date -d @$((NEW_EXPIRES_MS / 1000)) -Iseconds))"
 else
     log "[WARN] $PROFILES_JSON not found — skipping profile update"
+fi
+
+# --- Update gateway auth.json (the file the gateway actually reads) ---
+if [ -f "$GATEWAY_AUTH_JSON" ]; then
+    jq --arg at "$NEW_ACCESS_TOKEN" --arg rt "$NEW_REFRESH_TOKEN" --argjson exp "$NEW_EXPIRES_MS" \
+        '.tokens.access_token = $at | .tokens.refresh_token = $rt | .tokens.expires = $exp' \
+        "$GATEWAY_AUTH_JSON" > "${GATEWAY_AUTH_JSON}.tmp" \
+        && mv "${GATEWAY_AUTH_JSON}.tmp" "$GATEWAY_AUTH_JSON"
+    chmod 600 "$GATEWAY_AUTH_JSON"
+    log "[OK] gateway auth.json updated (expires=$(date -d @$((NEW_EXPIRES_MS / 1000)) -Iseconds))"
+else
+    log "[WARN] $GATEWAY_AUTH_JSON not found — skipping gateway auth update"
 fi
 
 # --- Restart gateway to pick up new token ---
