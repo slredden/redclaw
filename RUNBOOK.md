@@ -212,6 +212,14 @@ After updating, check that each user's service `ExecStart` path is still valid.
 If Openclaw changes its entrypoint location, update `templates/openclaw-gateway.service.tmpl`
 and re-run `setup.sh` for each affected user.
 
+**Provider config safety:** Openclaw upgrades sometimes change built-in provider defaults
+(e.g. the `openai-codex` provider's `api` type and `baseUrl`). Instance configs in
+`~/.openclaw/openclaw.json` are never modified by an upgrade — but if a config
+hardcodes `api` or `baseUrl` under `models.providers`, those values will go stale.
+The canonical template uses `"providers": {}` (empty) so the built-in defaults always
+apply. Never add `api` or `baseUrl` to a custom provider entry unless you have a
+specific reason to override the built-in.
+
 ---
 
 ## Rollback After a Bad Update

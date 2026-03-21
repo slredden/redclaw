@@ -336,6 +336,10 @@ else
 fi
 
 # Main config
+# NOTE: The template uses "providers": {} (empty) intentionally — do NOT add api/baseUrl
+# fields to provider entries. Openclaw's built-in provider defaults (including the correct
+# API type and endpoint for openai-codex) are maintained by the binary and applied
+# automatically. Hardcoding those fields causes them to go stale on upgrades.
 render_template "${SCRIPT_DIR}/templates/${OPENCLAW_JSON_TMPL}" "${HOME_DIR}/.openclaw/openclaw.json"
 if ! $DRY_RUN; then
     chmod 600 "${HOME_DIR}/.openclaw/openclaw.json"
