@@ -184,7 +184,7 @@ for user in "${BOT_USERS[@]}"; do
 
     if [ -S "$bus_path" ]; then
         was_active=false
-        if sudo -u "$user" \
+        if sudo -u "$user" env \
             XDG_RUNTIME_DIR="$runtime_dir" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
             systemctl --user is-active openclaw-gateway.service &>/dev/null 2>&1; then
@@ -197,7 +197,7 @@ for user in "${BOT_USERS[@]}"; do
             if $DRY_RUN; then
                 echo "  [dry-run] Would stop gateway for ${user}"
             else
-                sudo -u "$user" \
+                sudo -u "$user" env \
                     XDG_RUNTIME_DIR="$runtime_dir" \
                     DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
                     systemctl --user stop openclaw-gateway.service 2>/dev/null || true
@@ -280,12 +280,12 @@ for user in "${BOT_USERS[@]}"; do
         if $DRY_RUN; then
             echo "  [dry-run] Would restart gateway for ${user}"
         else
-            sudo -u "$user" \
+            sudo -u "$user" env \
                 XDG_RUNTIME_DIR="$runtime_dir" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
                 systemctl --user daemon-reload 2>/dev/null || true
 
-            sudo -u "$user" \
+            sudo -u "$user" env \
                 XDG_RUNTIME_DIR="$runtime_dir" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
                 systemctl --user restart openclaw-gateway.service 2>/dev/null && {
@@ -329,7 +329,7 @@ for user in "${BOT_USERS[@]}"; do
 
     # Check if service is active
     if [ -S "$bus_path" ]; then
-        active=$(sudo -u "$user" \
+        active=$(sudo -u "$user" env \
             XDG_RUNTIME_DIR="$runtime_dir" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
             timeout 5 systemctl --user is-active openclaw-gateway.service 2>/dev/null || echo "inactive")

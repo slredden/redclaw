@@ -31,6 +31,10 @@ Operational reference for managing Openclaw bot users on a shared server.
 - **Per-user config:** Each bot user has their own `~/.openclaw/` — credentials, workspace, sessions
 - **Per-user gateway:** Each user runs their own gateway process via `systemd --user` on a unique port
 - **Per-user gog:** `gog` binary installed to `~/.npm-global/bin/gog` for each user separately
+- **Remote desktop preserved:** Gateway hardening only changes `openclaw-gateway.service`.
+  Do not disable or clean up xrdp, Chrome Remote Desktop, GNOME, PipeWire,
+  WirePlumber, xdg portal, or snap desktop integration services on accounts
+  that need a graphical remote desktop session.
 
 ---
 
@@ -219,6 +223,34 @@ hardcodes `api` or `baseUrl` under `models.providers`, those values will go stal
 The canonical template uses `"providers": {}` (empty) so the built-in defaults always
 apply. Never add `api` or `baseUrl` to a custom provider entry unless you have a
 specific reason to override the built-in.
+
+### Shared admin scripts
+
+This repo includes shared-server helpers in `scripts/`:
+
+```bash
+# Status for the known shared Openclaw users:
+./scripts/openclaw-users-status
+
+# Apply current gateway unit limits to existing users and restart gateways:
+sudo ./scripts/openclaw-apply-gateway-limits
+
+# Restart all known gateways after a Node.js or config change:
+sudo ./scripts/openclaw-users-restart
+
+# Full global update flow with backups, discovery, and health checks:
+sudo ./update-openclaw.sh
+```
+
+Default managed users for the helper scripts are `marrowagent:18789`,
+`infolkai:18800`, and `outfitai:18900`. Override that list for one command with:
+
+```bash
+OPENCLAW_USERS='alice:18810 bob:18820' ./scripts/openclaw-users-status
+```
+
+The restart and limit scripts only target `openclaw-gateway.service`; they do
+not alter graphical remote desktop services.
 
 ---
 

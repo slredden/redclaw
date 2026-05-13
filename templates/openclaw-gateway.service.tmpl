@@ -11,6 +11,10 @@ RestartSec=5
 KillMode=process
 PrivateTmp=yes
 NoNewPrivileges=yes
+CPUQuota=300%
+MemoryMax=6G
+TasksMax=2048
+LimitNOFILE=1048576
 StandardOutput=journal
 StandardError=journal
 Environment=HOME=/home/${BOT_USER}

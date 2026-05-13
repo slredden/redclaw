@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_OPENCLAW_USERS=(
+  "marrowagent:18789"
+  "infolkai:18800"
+  "outfitai:18900"
+)
+
+if [ "${EUID}" -ne 0 ]; then
+  echo "Run as root: sudo $0" >&2
+  exit 1
+fi
+
+if [ -n "${OPENCLAW_USERS:-}" ]; then
+  read -r -a OPENCLAW_USERS_LIST <<< "${OPENCLAW_USERS}"
+else
+  OPENCLAW_USERS_LIST=("${DEFAULT_OPENCLAW_USERS[@]}")
+fi
+
+run_user_systemctl() {
+  local user="$1"
+  shift
+  local uid
+  uid="$(id -u "$user")"
+  sudo -u "$user" env \
+    XDG_RUNTIME_DIR="/run/user/${uid}" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
+    systemctl --user "$@"
+}
+
+health_check() {
+  local port="$1"
+  curl -fsS --max-time 10 "http://127.0.0.1:${port}/" >/dev/null
+}
+
+wait_for_listen() {
+  local port="$1"
+  local timeout="${2:-30}"
+  local elapsed=0
+
+  while [ "$elapsed" -lt "$timeout" ]; do
+    if ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  return 1
+}
+
+for entry in "${OPENCLAW_USERS_LIST[@]}"; do
+  user="${entry%%:*}"
+  port="${entry##*:}"
+  if ! id "$user" >/dev/null 2>&1; then
+    echo "skip ${user}: account does not exist"
+    continue
+  fi
+
+  echo "==> ${user} (${port})"
+  loginctl enable-linger "$user"
+  run_user_systemctl "$user" daemon-reload
+  run_user_systemctl "$user" restart openclaw-gateway.service
+  sleep 3
+
+  if run_user_systemctl "$user" is-active --quiet openclaw-gateway.service; then
+    echo "service: active"
+  else
+    echo "service: failed" >&2
+    run_user_systemctl "$user" status openclaw-gateway.service --no-pager || true
+    exit 1
+  fi
+
+  if ! wait_for_listen "$port" 30; then
+    echo "health: port ${port} did not start listening within 30s" >&2
+    run_user_systemctl "$user" status openclaw-gateway.service --no-pager || true
+    exit 1
+  fi
+
+  if health_check "$port"; then
+    echo "health: ok"
+  else
+    echo "health: no HTTP 2xx from 127.0.0.1:${port}; check gateway auth/health endpoint manually"
+  fi
+done

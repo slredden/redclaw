@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_OPENCLAW_USERS=(
+  "marrowagent:18789"
+  "infolkai:18800"
+  "outfitai:18900"
+)
+
+if [ "${EUID}" -ne 0 ]; then
+  echo "Run as root: sudo $0" >&2
+  exit 1
+fi
+
+if [ -n "${OPENCLAW_USERS:-}" ]; then
+  read -r -a OPENCLAW_USERS_LIST <<< "${OPENCLAW_USERS}"
+else
+  OPENCLAW_USERS_LIST=("${DEFAULT_OPENCLAW_USERS[@]}")
+fi
+
+limits_block=$'CPUQuota=300%\nMemoryMax=6G\nTasksMax=2048\nLimitNOFILE=1048576'
+
+for entry in "${OPENCLAW_USERS_LIST[@]}"; do
+  user="${entry%%:*}"
+  service_file="/home/${user}/.config/systemd/user/openclaw-gateway.service"
+
+  if [ ! -f "$service_file" ]; then
+    echo "skip ${user}: ${service_file} not found"
+    continue
+  fi
+
+  if grep -q '^CPUQuota=' "$service_file"; then
+    echo "ok ${user}: limits already present"
+    continue
+  fi
+
+  backup="${service_file}.bak.$(date +%Y%m%d-%H%M%S)"
+  cp -a "$service_file" "$backup"
+  awk -v block="$limits_block" '
+    { print }
+    $0 == "NoNewPrivileges=yes" {
+      print block
+    }
+  ' "$backup" > "$service_file"
+  chown "$user:$user" "$service_file"
+  chmod 600 "$service_file"
+  echo "updated ${user}: backup ${backup}"
+done
+
+"$(dirname "$0")/openclaw-users-restart"

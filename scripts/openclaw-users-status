@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_OPENCLAW_USERS=(
+  "marrowagent:18789"
+  "infolkai:18800"
+  "outfitai:18900"
+)
+
+if [ -n "${OPENCLAW_USERS:-}" ]; then
+  read -r -a OPENCLAW_USERS_LIST <<< "${OPENCLAW_USERS}"
+else
+  OPENCLAW_USERS_LIST=("${DEFAULT_OPENCLAW_USERS[@]}")
+fi
+
+openclaw_version="$(openclaw --version 2>/dev/null | head -1 || true)"
+printf "Openclaw: %s\n" "${openclaw_version:-not found}"
+printf "Generated: %s\n\n" "$(date)"
+printf "%-14s %-7s %-10s %-10s %-9s %-9s %-8s %s\n" \
+  "USER" "PORT" "LINGER" "SERVICE" "CPU%" "RSS_MB" "PID" "LISTEN"
+
+for entry in "${OPENCLAW_USERS_LIST[@]}"; do
+  user="${entry%%:*}"
+  port="${entry##*:}"
+  uid="$(id -u "$user" 2>/dev/null || true)"
+  if [ -z "$uid" ]; then
+    printf "%-14s %-7s %-10s %-10s %-9s %-9s %-8s %s\n" \
+      "$user" "$port" "missing" "n/a" "-" "-" "-" "-"
+    continue
+  fi
+
+  linger="$(loginctl show-user "$user" -p Linger --value 2>/dev/null || echo unknown)"
+  pid="$(pgrep -u "$user" -f "openclaw/dist/index.js gateway --port ${port}" 2>/dev/null | head -1 || true)"
+  if [ -n "$pid" ]; then
+    read -r cpu rss < <(ps -p "$pid" -o pcpu=,rss= 2>/dev/null || echo "0 0")
+    rss_mb="$(awk -v rss="$rss" 'BEGIN { printf "%.0f", rss / 1024 }')"
+    service="running"
+  else
+    cpu="-"
+    rss_mb="-"
+    service="stopped"
+  fi
+
+  if ss -H -ltn "sport = :${port}" 2>/dev/null | grep -q .; then
+    listen="yes"
+  else
+    listen="no"
+  fi
+
+  printf "%-14s %-7s %-10s %-10s %-9s %-9s %-8s %s\n" \
+    "$user" "$port" "$linger" "$service" "$cpu" "$rss_mb" "${pid:-"-"}" "$listen"
+done
+
+echo
+echo "Set OPENCLAW_USERS='user1:port user2:port' to override the default user list."
