@@ -60,7 +60,6 @@
   },
   "gateway": {
     "port": ${GATEWAY_PORT},
-    "mode": "local",
     "bind": "loopback",
     "auth": {
       "mode": "token",
@@ -81,12 +80,6 @@
     "entries": {
       "telegram": {
         "enabled": true
-      },
-      "memory-core": {
-        "enabled": false
-      },
-      "memory-lancedb": {
-        "enabled": false
       }
     }
   }
