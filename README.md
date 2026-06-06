@@ -33,7 +33,7 @@ cd ~/redclaw
 ### Step 2: Install System Prerequisites (Admin, Once)
 
 ```bash
-sudo ./prereqs.sh
+sudo bash prereqs.sh
 ```
 
 Installs Node.js 22+, npm, jq, curl, envsubst, openssl, and Openclaw system-wide.
@@ -44,12 +44,12 @@ Safe to re-run — skips steps already done.
 **Two-step (if the user already exists):**
 ```bash
 sudo adduser <bot-user>
-sudo ./add-bot.sh --bot-user <bot-user>
+sudo bash add-bot.sh --bot-user <bot-user>
 ```
 
 **One-step (creates the user for you):**
 ```bash
-sudo ./add-bot.sh --bot-user <bot-user> --create-user
+sudo bash add-bot.sh --bot-user <bot-user> --create-user
 ```
 
 This enables systemd lingering and copies the repo to `~<bot-user>/redbot-provision/`.
@@ -64,18 +64,7 @@ ssh <bot-user>@localhost
 > D-Bus access. `su` doesn't create one, so the gateway service won't start.
 > Always use a fresh SSH session after `add-bot.sh`.
 
-### Step 5: Authenticate with OpenAI
-
-Run the OAuth flow as the bot user:
-
-```bash
-openclaw onboard --auth-choice openai-codex --skip-daemon
-```
-
-This opens a browser for OAuth login. On a headless server it prints a URL —
-open it on any device, complete the login, and it finishes automatically.
-
-### Step 6: Configure Your Bot
+### Step 5: Configure Your Bot
 
 ```bash
 cd ~/redbot-provision
@@ -94,23 +83,6 @@ nano .env
 | `USER_TIMEZONE` | Your timezone | `EST` |
 | `USER_LOCATION` | Your city | `"Oklahoma City, OK"` |
 | `USER_EMAIL` | Your email | `you@example.com` |
-| `OPENAI_ACCESS_TOKEN` | JWT access token (see below) | *(long string)* |
-| `OPENAI_REFRESH_TOKEN` | Refresh token (see below) | `rt_...` |
-
-#### Extracting your tokens
-
-After completing Step 5, your tokens are stored locally. Extract them and paste
-each into `.env`:
-
-```bash
-# Print the access token — copy the output into OPENAI_ACCESS_TOKEN in .env:
-jq -r '.profiles["openai-codex:default"].access' \
-  ~/.openclaw/agents/main/agent/auth-profiles.json
-
-# Print the refresh token — copy the output into OPENAI_REFRESH_TOKEN in .env:
-jq -r '.profiles["openai-codex:default"].refresh' \
-  ~/.openclaw/agents/main/agent/auth-profiles.json
-```
 
 #### Optional fields (fill in now if you want them)
 
@@ -132,19 +104,30 @@ if you want them — or leave them blank and add them later (see
 | `GATEWAY_TOKEN` | *(blank)* | Auto-generated if blank. **Save the printed URL after setup** — it contains your dashboard password. Copy the token back into `.env` to keep the same URL on re-runs. |
 | `GOG_KEYRING_PASSWORD` | `redbot` | Encrypts Google OAuth tokens locally. Any value works. Default is fine. |
 
-### Step 7: Run Setup
+### Step 6: Run Setup
 
 ```bash
-./setup.sh
+bash setup.sh
 ```
 
-This generates config files, writes `~/.codex/auth.json`, installs the gateway
-as a systemd service, sets up cron jobs (backup, watchdog, token refresh), and
-starts the bot.
+This generates config files, installs plugins (including Telegram and Brave Search
+if configured), installs the gateway as a systemd service, sets up cron jobs
+(backup, watchdog, token refresh), and starts the bot.
 
 > **Save the gateway URL printed at the end** — it contains your auth token
 > for dashboard access. If you left `GATEWAY_TOKEN` blank, copy the generated
 > token back into `.env` so it stays the same on future runs.
+
+### Step 7: Authenticate with OpenAI
+
+Run the OAuth flow as the bot user:
+
+```bash
+openclaw models auth login --provider openai
+```
+
+This opens a browser for OAuth login. On a headless server it prints a URL —
+open it on any device, complete the login, and it finishes automatically.
 
 After setup completes:
 
@@ -152,6 +135,21 @@ After setup completes:
 source ~/.bashrc
 openclaw health
 ~/status.sh
+```
+
+---
+
+## Setup Flow Summary
+
+```
+Admin:   sudo bash prereqs.sh               # one-time system setup
+Admin:   sudo bash add-bot.sh --bot-user <name> --create-user
+
+Bot user (SSH in as <name>):
+         cp .env.example .env
+         nano .env                          # fill in BOT_NAME, GATEWAY_PORT, etc.
+         bash setup.sh
+         openclaw models auth login --provider openai   # complete OpenAI OAuth
 ```
 
 ---
@@ -190,7 +188,8 @@ Give your bot access to Gmail, Calendar, and Drive.
 
 ### Telegram Pairing (If Configured)
 
-If you added `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID` in Step 6:
+If you added `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID` in Step 5, `setup.sh`
+installs the Telegram plugin automatically. After setup:
 
 ```bash
 openclaw telegram pair
@@ -198,17 +197,15 @@ openclaw telegram pair
 
 Message your bot on Telegram to confirm it responds.
 
-### Slack (Optional — Manual Configuration)
+### Slack (Optional)
 
-Openclaw supports Slack natively, but this toolkit doesn't auto-configure it
-yet. To set it up manually:
+To enable Slack, add your Slack bot token and signing secret to `.env` and
+re-run `setup.sh` — it calls `openclaw plugins install` automatically, which
+picks up any newly configured integrations.
 
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps)
-2. Add a Bot Token (`xoxb-...`) and note the Signing Secret
-3. Edit `~/.openclaw/agents/main/agent/openclaw.json` and add the Slack
-   connection under `connections` (see Openclaw docs for the exact format)
-4. Restart the gateway: `systemctl --user restart openclaw-gateway`
-5. Verify: `openclaw doctor`
+Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps), add a
+Bot Token (`xoxb-...`) and note the Signing Secret, then set the corresponding
+variables in `.env` before re-running setup.
 
 ---
 
@@ -218,16 +215,16 @@ Each bot user needs their own account and a **unique** gateway port.
 
 ```bash
 # As admin:
-sudo ./add-bot.sh --bot-user <bot-user2> --create-user
+sudo bash add-bot.sh --bot-user <bot-user2> --create-user
 
 # As bot-user2 (fresh SSH session):
 ssh <bot-user2>@localhost
-openclaw onboard --auth-choice openai-codex --skip-daemon
 
 cd ~/redbot-provision
 cp .env.example .env
 nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all fields
-./setup.sh
+bash setup.sh
+openclaw models auth login --provider openai
 ```
 
 Check which ports are already in use:
@@ -261,7 +258,8 @@ openclaw health
 To add Telegram, Brave Search, or change any setting after initial setup:
 
 1. Edit `.env` with the new values
-2. Re-run `./setup.sh`
+2. Re-run `bash setup.sh` — it calls `openclaw plugins install` automatically,
+   picking up any newly configured integrations
 3. Restart the gateway if setup doesn't do it automatically:
    `systemctl --user restart openclaw-gateway`
 
@@ -272,7 +270,7 @@ To add Telegram, Brave Search, or change any setting after initial setup:
 | **Overwrites** (re-rendered from `.env`) | `openclaw.json`, `~/.codex/auth.json`, `USER.md`, `IDENTITY.md`, systemd service file |
 | **Merges** (existing values preserved) | `auth-profiles.json` |
 | **Preserves** (never touched) | `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, `TOOLS.md` |
-| **Idempotent** (safe to re-run) | cron jobs, `.bashrc` block, gog install, automation scripts |
+| **Idempotent** (safe to re-run) | cron jobs, `.bashrc` block, gog install, automation scripts, plugin installs |
 
 ### GATEWAY_TOKEN caveat
 
@@ -289,10 +287,27 @@ Both are updated atomically by `~/codex-refresh.sh` during daily token refresh.
 
 ---
 
+## Backup & Restore
+
+The daily backup script (`scripts/backup.sh`) runs automatically via cron after
+setup. It archives `~/.openclaw`, SSH keys, crontab, standalone scripts, and
+optionally uploads to SFTP.
+
+**Restore procedure** (after a fresh bot-user setup and `bash setup.sh`):
+
+1. Extract: `tar -xzf <backup>.tar.gz -C ~/`
+2. Register service: `openclaw gateway install`
+3. Start: `systemctl --user start openclaw-gateway.service`
+4. Repair: `openclaw doctor --fix`
+5. Verify: `openclaw status --deep`
+6. Re-auth (if OAuth expired): `openclaw models auth login --provider openai`
+
+---
+
 ## SFTP Offsite Backups (Optional)
 
-The daily backup script (`~/backup.sh`) supports optional SFTP upload for
-offsite copies. SFTP is configured via a separate config file, not `.env`.
+The daily backup script supports optional SFTP upload for offsite copies.
+SFTP is configured via a separate config file, not `.env`.
 
 **Config file:** `~/.config/<botname-lower>-backup.conf`
 
