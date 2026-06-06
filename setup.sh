@@ -508,17 +508,7 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; th
     export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
 fi
 
-SYSTEMD_DIR="${HOME_DIR}/.config/systemd/user"
-run mkdir -p "$SYSTEMD_DIR"
-
-render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
-    "${SYSTEMD_DIR}/openclaw-gateway.service"
-
 if ! $DRY_RUN; then
-    chmod 700 "$SYSTEMD_DIR"
-    chmod 600 "${SYSTEMD_DIR}/openclaw-gateway.service"
-    ok "openclaw-gateway.service: permissions set to 600"
-
     # Stop this user's existing gateway before the port check so a previous
     # onboard or setup run doesn't falsely trigger the conflict check.
     if timeout 3 systemctl --user is-active openclaw-gateway.service &>/dev/null 2>&1; then
@@ -538,23 +528,14 @@ if ! $DRY_RUN; then
     fi
 fi
 
-if ! $DRY_RUN; then
-    # Test systemd --user access with detailed diagnostics
-    SYSTEMD_ERROR=$(systemctl --user daemon-reload 2>&1)
-    if [ $? -eq 0 ]; then
-        systemctl --user enable openclaw-gateway.service
-        ok "openclaw-gateway.service enabled"
-    else
-        warn "systemd user services unavailable — skipping service enable"
-        if echo "$SYSTEMD_ERROR" | grep -qi "permission denied"; then
-            warn "D-Bus permission denied — you need a fresh login session"
-            warn "Exit and log in again as ${BOT_USER} (don't use 'su'), then re-run setup.sh"
-        elif echo "$SYSTEMD_ERROR" | grep -qi "no such file"; then
-            warn "systemd --user not available on this system"
-        else
-            warn "Error: $SYSTEMD_ERROR"
-        fi
-    fi
+step "Installing gateway as persistent systemd service..."
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  info "[dry-run] Would run: openclaw gateway install"
+else
+  openclaw gateway install 2>&1 || {
+    warn "openclaw gateway install failed — gateway will not auto-start on login."
+    warn "Run 'openclaw gateway install' manually once Openclaw is configured."
+  }
 fi
 
 # ============================================================================
