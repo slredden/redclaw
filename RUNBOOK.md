@@ -91,17 +91,7 @@ cd ~/redbot-provision
 cp .env.example .env
 ```
 
-Extract the tokens and paste them into `.env`:
-
-```bash
-# Print the access token — copy the output into OPENAI_ACCESS_TOKEN in .env:
-jq -r '.profiles["openai-codex:default"].access' \
-  ~/.openclaw/agents/main/agent/auth-profiles.json
-
-# Print the refresh token — copy the output into OPENAI_REFRESH_TOKEN in .env:
-jq -r '.profiles["openai-codex:default"].refresh' \
-  ~/.openclaw/agents/main/agent/auth-profiles.json
-```
+OpenAI OAuth is configured interactively — run `openclaw models auth login --provider openai` after setup.sh completes.
 
 Open `.env` and fill in all fields. See `README.md` Step 6 for a full table
 of required, optional, and default fields. If you want Telegram or Brave
@@ -371,15 +361,6 @@ nano .env          # Add TELEGRAM_BOT_TOKEN, BRAVE_SEARCH_KEY, etc.
 
 If `GATEWAY_TOKEN` is blank in `.env`, a new random token is generated each run.
 This changes your dashboard URL. Save the token from the first run back into `.env`.
-
-### Token files
-
-Two separate token files exist for different consumers:
-
-- **`~/.codex/auth.json`** — Used by the Codex CLI and `codex-refresh.sh`
-- **`~/.openclaw/agents/main/agent/auth-profiles.json`** — Used by the Openclaw gateway
-
-Both are updated atomically by `~/codex-refresh.sh` during daily token refresh.
 
 ---
 
