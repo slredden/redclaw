@@ -129,6 +129,12 @@ openclaw models auth login --provider openai
 This opens a browser for OAuth login. On a headless server it prints a URL —
 open it on any device, complete the login, and it finishes automatically.
 
+Then select your model and adjust any other settings interactively:
+
+```bash
+openclaw configure
+```
+
 After setup completes:
 
 ```bash
@@ -150,6 +156,7 @@ Bot user (SSH in as <name>):
          nano .env                          # fill in BOT_NAME, GATEWAY_PORT, etc.
          bash setup.sh
          openclaw models auth login --provider openai   # complete OpenAI OAuth
+         openclaw configure                             # select model, adjust settings
 ```
 
 ---
@@ -225,6 +232,7 @@ cp .env.example .env
 nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all fields
 bash setup.sh
 openclaw models auth login --provider openai
+openclaw configure
 ```
 
 Check which ports are already in use:
