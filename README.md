@@ -283,7 +283,7 @@ the token from the first run's output back into `.env`.
 - **`~/.codex/auth.json`** — Used by the Codex CLI and the refresh script
 - **`~/.openclaw/agents/main/agent/auth-profiles.json`** — Used by the Openclaw gateway
 
-Both are updated atomically by `~/codex-refresh.sh` during daily token refresh.
+Both are updated atomically during token refresh.
 
 ---
 
@@ -334,7 +334,7 @@ If this file doesn't exist, backups are stored locally only.
 |---------|-----|
 | Gateway won't start | `journalctl --user -u openclaw-gateway -n 50` |
 | Health check fails | Wait 30s, retry `openclaw health`; check logs |
-| Token expired (500 errors) | `~/codex-refresh.sh` |
+| Token expired (500 errors) | Run: `openclaw models auth login --provider openai` |
 | systemd fails after `su` | Exit and SSH in fresh as the bot user |
 | Port already in use | `lsof -i :18789` — set different `GATEWAY_PORT` in `.env` |
 | Google auth expired | `gog auth add <email> --remote --step 1 --services gmail,calendar,drive,contacts` |

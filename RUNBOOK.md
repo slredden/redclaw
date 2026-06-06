@@ -209,8 +209,7 @@ openclaw health
 `sudo npm install -g openclaw@latest`.
 
 After updating, check that each user's service `ExecStart` path is still valid.
-If Openclaw changes its entrypoint location, update `templates/openclaw-gateway.service.tmpl`
-and re-run `setup.sh` for each affected user.
+If Openclaw changes its entrypoint location, the service unit is managed by `openclaw gateway install` — to customize, run `openclaw gateway install` and then edit `~/.config/systemd/user/openclaw-gateway.service` directly, or adjust parameters in `openclaw.json`.
 
 **Provider config safety:** Openclaw upgrades sometimes change built-in provider defaults
 (e.g. the `openai-codex` provider's `api` type and `baseUrl`). Instance configs in
@@ -432,8 +431,9 @@ ls /usr/lib/node_modules/openclaw/dist/index.js
 # or:
 cat $(npm root -g)/openclaw/package.json | jq '.main'
 
-# If it changed, update templates/openclaw-gateway.service.tmpl,
-# then re-render and reload:
+# If it changed, run `openclaw gateway install` then edit
+# ~/.config/systemd/user/openclaw-gateway.service directly, or adjust
+# parameters in openclaw.json, then reload:
 ./setup.sh --dry-run   # check what would change
 ./setup.sh             # re-run (existing files are preserved unless re-rendered)
 systemctl --user daemon-reload
