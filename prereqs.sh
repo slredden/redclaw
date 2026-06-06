@@ -112,8 +112,6 @@ if command -v node &> /dev/null; then
     elif [[ "$NODE_MAJOR" -eq 22 ]]; then
         warn "Node.js 24 LTS is recommended for best Openclaw compatibility. Found: $NODE_VERSION"
         ok "Node.js: $NODE_VERSION (meets 22.19+ minimum)"
-    else
-        ok "Node.js: $NODE_VERSION"
     fi
 else
     info "Node.js not found"
@@ -121,8 +119,8 @@ else
 fi
 
 if $NEED_NODE; then
-    step "Installing Node.js v22 via NodeSource"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    step "Installing Node.js v24 via NodeSource"
+    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
     sudo apt-get install -y nodejs
     ok "Node.js installed: $(node --version)"
 fi
