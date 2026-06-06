@@ -21,7 +21,7 @@ Operational reference for managing Openclaw bot users on a shared server.
 │                                         │
 │  ┌─────────────────────────────────┐   │
 │  │ bot2 (~/.openclaw/)             │   │
-│  │   gateway → port 18790          │   │
+│  │   gateway → port 18989          │   │
 │  │   cron jobs / watchdog          │   │
 │  └─────────────────────────────────┘   │
 └─────────────────────────────────────────┘
@@ -158,7 +158,7 @@ cd ~/redbot-provision
 openclaw onboard --auth-choice openai-codex --skip-daemon
 
 cp .env.example .env
-nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all other values
+nano .env   # Set GATEWAY_PORT=18989 (or next 200-port increment), fill in all other values
 ./setup.sh
 ```
 
@@ -166,19 +166,29 @@ nano .env   # Set GATEWAY_PORT=18790 (or next available), fill in all other valu
 
 ## Port Allocation
 
-Each bot user's gateway must bind to a unique port. Convention:
+Openclaw uses adjacent ports relative to the gateway base port:
+
+- **Base port** — gateway listens here
+- **Base + 2** — browser control port
+- **Base + 9 through Base + 108** — Chrome DevTools Protocol (CDP) range
+
+This means each bot instance occupies a range of **110 ports** minimum. Use a
+spacing of **200 ports** between bot instances to leave headroom:
 
 | Bot User | Port  |
 |----------|-------|
 | bot1     | 18789 |
-| bot2     | 18790 |
-| bot3     | 18791 |
-| bot4     | 18792 |
+| bot2     | 18989 |
+| bot3     | 19189 |
+| bot4     | 19389 |
+
+> **Minimum spacing is 110 ports; 200 is recommended.** Using adjacent ports
+> (e.g. 18789, 18790) will cause CDP port collisions between bot instances.
 
 To see what's currently in use:
 
 ```bash
-ss -tuln | grep 187
+ss -tuln | grep 18
 ```
 
 `setup.sh` will abort with an error if the chosen port is already bound.
@@ -234,6 +244,43 @@ Then restart each bot user's gateway (see above).
 
 ---
 
+## Service Management
+
+The systemd user service (`openclaw-gateway.service`) is created by
+`openclaw gateway install`, which is called automatically during `setup.sh`.
+You do not need to create or edit the unit file manually.
+
+Standard systemctl commands remain the same:
+
+```bash
+systemctl --user start   openclaw-gateway.service
+systemctl --user stop    openclaw-gateway.service
+systemctl --user restart openclaw-gateway.service
+systemctl --user status  openclaw-gateway.service
+```
+
+To reinstall the service (e.g., after restoring from backup):
+
+```bash
+openclaw gateway install
+```
+
+---
+
+## Restoring from Backup
+
+```
+1. Install prerequisites (if new server): sudo bash prereqs.sh
+2. Extract backup: tar -xzf <backup-file>.tar.gz -C ~/
+3. Register service: openclaw gateway install
+4. Start gateway: systemctl --user start openclaw-gateway.service
+5. Repair config: openclaw doctor --fix
+6. Verify: openclaw status --deep
+7. Re-auth if needed: openclaw models auth login --provider openai
+```
+
+---
+
 ## Node.js Upgrade Impact
 
 After `sudo apt upgrade nodejs` or a Node.js major version change, all gateway
@@ -262,7 +309,7 @@ ssh -L 18789:127.0.0.1:18789 botname@server-ip
 For multiple bots:
 
 ```bash
-ssh -L 18789:127.0.0.1:18789 -L 18790:127.0.0.1:18790 admin@server-ip
+ssh -L 18789:127.0.0.1:18789 -L 18989:127.0.0.1:18989 admin@server-ip
 ```
 
 ---
@@ -290,42 +337,13 @@ sudo npm uninstall -g openclaw
 
 ## Codex Token Refresh
 
-OpenAI Codex access tokens last ~8 days; refresh tokens last ~60 days. The
-`codex-refresh.sh` script handles renewal automatically:
+Token refresh is now fully automatic — managed by Openclaw's built-in OAuth
+handling. No manual refresh scripts or cron jobs are needed.
 
-- **Schedule:** 4 AM daily (added to user crontab by setup.sh)
-- **Logic:** Checks token expiry; only refreshes if within 3 days of expiry
-- **On success:** Updates both `~/.codex/auth.json` and `auth-profiles.json`
-  atomically, then restarts the gateway
-- **On failure:** Sends a Telegram alert (if configured) and exits 1
-
-To manually trigger a refresh:
+If OAuth is revoked (e.g., password change), run:
 
 ```bash
-~/codex-refresh.sh
-```
-
-Check the refresh log:
-
-```bash
-tail -50 ~/<botname>-codex-refresh.log
-```
-
-### Token expired (500 errors from API)
-
-Run `~/codex-refresh.sh`. If the refresh token has also expired (~60 days), re-authenticate:
-
-```bash
-openclaw onboard --auth-choice openai-codex --skip-daemon
-
-# Print the new tokens (copy each output into .env):
-jq -r '.profiles["openai-codex:default"].access' ~/.openclaw/agents/main/agent/auth-profiles.json
-jq -r '.profiles["openai-codex:default"].refresh' ~/.openclaw/agents/main/agent/auth-profiles.json
-
-# Paste into OPENAI_ACCESS_TOKEN and OPENAI_REFRESH_TOKEN in .env, then:
-cd ~/redbot-provision
-nano .env
-./setup.sh
+openclaw models auth login --provider openai
 ```
 
 ---
@@ -344,7 +362,7 @@ nano .env          # Add TELEGRAM_BOT_TOKEN, BRAVE_SEARCH_KEY, etc.
 
 | Action | Files |
 |--------|-------|
-| **Overwrites** (re-rendered from `.env`) | `openclaw.json`, `~/.codex/auth.json`, `USER.md`, `IDENTITY.md`, systemd service file |
+| **Overwrites** (re-rendered from `.env`) | `openclaw.json`, `~/.codex/auth.json`, `USER.md`, `IDENTITY.md` |
 | **Merges** (existing values preserved) | `auth-profiles.json` |
 | **Preserves** (never touched) | `SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, `TOOLS.md` |
 | **Idempotent** (safe to re-run) | cron jobs, `.bashrc` block, gog install, automation scripts |
