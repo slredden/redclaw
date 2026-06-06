@@ -371,6 +371,39 @@ if [[ -n "${OPENAI_API_KEY:-}" ]]; then
 fi
 
 # ============================================================================
+# PLUGIN INSTALLATION
+# ============================================================================
+
+# ── Plugin installation ────────────────────────────────────────────────────────
+step "Installing plugins..."
+
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  info "[dry-run] Would install: plugins based on provided API keys"
+else
+  # Brave Search — install only if API key provided
+  if [[ -n "${BRAVE_SEARCH_KEY:-}" ]]; then
+    info "Installing Brave Search plugin..."
+    openclaw plugins install clawhub:brave 2>&1 \
+      && ok "Brave Search plugin installed" \
+      || warn "Brave Search plugin install failed — web search may be unavailable"
+  fi
+
+  # Slack — install only if bot token provided
+  if [[ -n "${SLACK_BOT_TOKEN:-}" ]]; then
+    info "Installing Slack plugin..."
+    openclaw plugins install @openclaw/slack 2>&1 \
+      && ok "Slack plugin installed" \
+      || warn "Slack plugin install failed — Slack channel will be unavailable"
+  fi
+fi
+
+# Apply integration key config
+if [[ -n "${BRAVE_SEARCH_KEY:-}" ]] && [[ "${DRY_RUN:-false}" != "true" ]]; then
+  openclaw config set tools.webSearch.enabled true 2>/dev/null || true
+  openclaw config set tools.webSearch.provider brave 2>/dev/null || true
+fi
+
+# ============================================================================
 # GOG (Google Workspace CLI)
 # ============================================================================
 
