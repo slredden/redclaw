@@ -243,7 +243,8 @@ sudo ./update-openclaw.sh
 ```
 
 Default managed users for the helper scripts are `marrowagent:18789`,
-`infolkai:18800`, and `outfitai:18900`. Override that list for one command with:
+`infolkai:18800`, `outfitai:18900`, and `rebarai:18793`. Override that list
+for one command with:
 
 ```bash
 OPENCLAW_USERS='alice:18810 bob:18820' ./scripts/openclaw-users-status

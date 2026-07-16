@@ -5,6 +5,7 @@ DEFAULT_OPENCLAW_USERS=(
   "marrowagent:18789"
   "infolkai:18800"
   "outfitai:18900"
+  "rebarai:18793"
 )
 
 if [ -n "${OPENCLAW_USERS:-}" ]; then
