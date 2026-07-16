@@ -95,18 +95,23 @@ else
     warn "Cannot detect OS. Proceeding anyway."
 fi
 
-# --- Node.js >= 22 ---
+# --- Node.js >= 22.19 ---
 step "Checking Node.js"
 
 NEED_NODE=false
 if command -v node &> /dev/null; then
-    NODE_VER=$(node --version)
-    NODE_MAJOR=$(echo "$NODE_VER" | sed 's/v\([0-9]*\).*/\1/')
-    if [ "$NODE_MAJOR" -ge 22 ]; then
-        ok "Node.js: $NODE_VER (meets v22+ requirement)"
-    else
-        warn "Node.js $NODE_VER found but v22+ required"
+    NODE_VERSION=$(node --version)
+    NODE_MAJOR=$(node -e "process.stdout.write(process.versions.node.split('.')[0])")
+    NODE_MINOR=$(node -e "process.stdout.write(process.versions.node.split('.')[1])")
+    if [[ "$NODE_MAJOR" -lt 22 ]]; then
+        err "Node.js 22.19+ is required (24 LTS recommended). Found: $NODE_VERSION"
         NEED_NODE=true
+    elif [[ "$NODE_MAJOR" -eq 22 && "$NODE_MINOR" -lt 19 ]]; then
+        err "Node.js 22.19+ is required (24 LTS recommended). Found: $NODE_VERSION"
+        NEED_NODE=true
+    elif [[ "$NODE_MAJOR" -eq 22 ]]; then
+        warn "Node.js 24 LTS is recommended for best Openclaw compatibility. Found: $NODE_VERSION"
+        ok "Node.js: $NODE_VERSION (meets 22.19+ minimum)"
     fi
 else
     info "Node.js not found"
@@ -114,8 +119,8 @@ else
 fi
 
 if $NEED_NODE; then
-    step "Installing Node.js v22 via NodeSource"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    step "Installing Node.js v24 via NodeSource"
+    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
     sudo apt-get install -y nodejs
     ok "Node.js installed: $(node --version)"
 fi
@@ -181,6 +186,19 @@ if command -v openclaw &> /dev/null; then
 else
     sudo npm install -g openclaw@latest
     ok "Openclaw installed: $(openclaw --version 2>/dev/null | head -1)"
+fi
+
+OPENCLAW_ENTRY="/usr/lib/node_modules/openclaw/dist/index.js"
+if [[ ! -f "$OPENCLAW_ENTRY" ]]; then
+    ALT_ENTRY="$(npm prefix -g)/lib/node_modules/openclaw/dist/index.js"
+    if [[ -f "$ALT_ENTRY" ]]; then
+        warn "Openclaw installed at non-standard path: $ALT_ENTRY"
+        warn "If setup.sh references $OPENCLAW_ENTRY, update it to match."
+    else
+        warn "Could not locate openclaw/dist/index.js — run 'openclaw --version' to verify install."
+    fi
+else
+    ok "Openclaw entrypoint verified: $OPENCLAW_ENTRY"
 fi
 
 # --- Write sentinel ---

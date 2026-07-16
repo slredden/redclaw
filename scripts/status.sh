@@ -88,3 +88,9 @@ fi
 
 echo ""
 echo "Last updated: $(date)"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo " Openclaw Diagnostics"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+openclaw status --all 2>&1 || echo "(openclaw status unavailable)"

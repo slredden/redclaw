@@ -5,28 +5,20 @@
   },
   "models": {
     "mode": "merge",
-    "providers": {}
+    "providers": {
+      "openai": {
+        "allow": ["openai/*"]
+      }
+    }
   },
   "agents": {
     "defaults": {
-      "model": {
-        "primary": "openai-codex/gpt-5.3-codex",
-        "fallbacks": [
-          "openai-codex/gpt-5.3-codex"
-        ]
-      },
-      "models": {
-        "openai-codex/gpt-5.3-codex": {
-          "alias": "GPT-5.3 Codex (OpenAI)"
-        }
-      },
       "workspace": "/home/${BOT_USER}/.openclaw/workspace",
       "compaction": {
         "mode": "safeguard"
       },
       "maxConcurrent": 4,
       "subagents": {
-        "model": "openai-codex/gpt-5.3-codex",
         "maxConcurrent": 8
       }
     }
@@ -60,7 +52,6 @@
   },
   "gateway": {
     "port": ${GATEWAY_PORT},
-    "mode": "local",
     "bind": "loopback",
     "auth": {
       "mode": "token",
@@ -81,12 +72,6 @@
     "entries": {
       "telegram": {
         "enabled": true
-      },
-      "memory-core": {
-        "enabled": false
-      },
-      "memory-lancedb": {
-        "enabled": false
       }
     }
   }

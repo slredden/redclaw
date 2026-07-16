@@ -1,6 +1,15 @@
 #!/bin/bash
 # ${BOT_NAME} Automated Backup Script
 
+# ── Restore procedure ──────────────────────────────────────────────────────────
+# 1. Extract: tar -xzf <backup>.tar.gz -C ~/
+# 2. Register service: openclaw gateway install
+# 3. Start: systemctl --user start openclaw-gateway.service
+# 4. Repair: openclaw doctor --fix
+# 5. Verify: openclaw status --deep
+# 6. Re-auth (if OAuth expired): openclaw models auth login --provider openai
+# ──────────────────────────────────────────────────────────────────────────────
+
 BACKUP_ROOT=$HOME/${BOT_NAME_LOWER}-backups
 DATE=$(date +%Y%m%d-%H%M%S)
 BACKUP_DIR=$BACKUP_ROOT/auto-$DATE
@@ -18,7 +27,18 @@ mkdir -p "$BACKUP_DIR"
 
 # --- Core: Openclaw state ---
 echo "Backing up ~/.openclaw..."
+# NOTE: ~/.openclaw/ is backed up recursively and includes:
+#   - ~/.openclaw/.env        — gateway token and optional API keys (secrets;
+#                               restore with chmod 600 ~/.openclaw/.env)
+#   - ~/.openclaw/logs/stability/ — stability bundles useful for debugging
 cp -pr ~/.openclaw "$BACKUP_DIR/"
+
+# --- Legacy Codex state (opportunistic) ---
+# ~/.codex/ existed in older installs; skip silently if absent
+if [ -d "${HOME}/.codex" ]; then
+    echo "Backing up ~/.codex (legacy)..."
+    cp -pr ~/.codex "$BACKUP_DIR/"
+fi
 
 # Create sanitized version (no secrets) for documentation
 if command -v jq &> /dev/null; then

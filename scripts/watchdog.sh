@@ -57,10 +57,9 @@ health_check_cli() {
     return $?
 }
 
-# Fallback: simple HTTP probe on the gateway port
+# Fallback: openclaw status --all probe (exits 0 if any healthy indicator found)
 health_check_http() {
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:${GATEWAY_PORT}/ 2>/dev/null)
-    [ "$http_code" = "200" ]
+    openclaw status --all 2>&1 | grep -qi "online\|healthy\|running"
     return $?
 }
 
@@ -122,6 +121,8 @@ if check_restart_limit; then
     else
         log "[ERROR] systemctl --user restart failed (exit $?)"
     fi
+    sleep 5
+    openclaw status 2>&1 | head -5 | while IFS= read -r line; do log "$line"; done
 
     # Wait for startup and verify
     sleep 8

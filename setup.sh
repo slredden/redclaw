@@ -91,8 +91,11 @@ rm -f "$_safe_env"
 REQUIRED_VARS=(
     BOT_NAME BOT_USER BOT_EMOJI
     USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
-    OPENAI_ACCESS_TOKEN OPENAI_REFRESH_TOKEN
 )
+
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  info "No OPENAI_API_KEY set — OpenAI OAuth will be configured via 'openclaw models auth login' after setup completes."
+fi
 
 missing=()
 for var in "${REQUIRED_VARS[@]}"; do
@@ -112,7 +115,7 @@ fi
 # --- Derived variables ---
 export BOT_NAME BOT_USER BOT_EMOJI
 export USER_NAME USER_TIMEZONE USER_LOCATION USER_EMAIL
-export OPENAI_ACCESS_TOKEN OPENAI_REFRESH_TOKEN
+export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 export BRAVE_SEARCH_KEY="${BRAVE_SEARCH_KEY:-}"
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export TELEGRAM_USER_ID="${TELEGRAM_USER_ID:-}"
@@ -320,21 +323,6 @@ if ! $DRY_RUN; then
     chmod 700 "${HOME_DIR}/.openclaw/credentials"
 fi
 
-# Write Codex auth.json (safe for special chars in JWT tokens)
-if ! $DRY_RUN; then
-    mkdir -p "${HOME_DIR}/.codex"
-    chmod 700 "${HOME_DIR}/.codex"
-    jq --null-input \
-        --arg at "$OPENAI_ACCESS_TOKEN" \
-        --arg rt "$OPENAI_REFRESH_TOKEN" \
-        '{"tokens": {"access_token": $at, "refresh_token": $rt}}' \
-        > "${HOME_DIR}/.codex/auth.json"
-    chmod 600 "${HOME_DIR}/.codex/auth.json"
-    ok "~/.codex/auth.json written (mode 600)"
-else
-    echo "  [dry-run] Would write ~/.codex/auth.json"
-fi
-
 # Main config
 # NOTE: The template uses "providers": {} (empty) intentionally — do NOT add api/baseUrl
 # fields to provider entries. Openclaw's built-in provider defaults (including the correct
@@ -364,46 +352,55 @@ if ! $DRY_RUN; then
     fi
 fi
 
-# Auth profiles — use jq to safely inject tokens (JWTs contain special chars)
-AUTH_PROFILES="${HOME_DIR}/.openclaw/agents/main/agent/auth-profiles.json"
-if ! $DRY_RUN; then
-    if [ -f "$AUTH_PROFILES" ]; then
-        # Merge into existing file — update the openai-codex profile, preserve others
-        jq --arg at "$OPENAI_ACCESS_TOKEN" \
-           --arg rt "$OPENAI_REFRESH_TOKEN" \
-           '.profiles["openai-codex:default"] = {
-               "type": "oauth",
-               "provider": "openai-codex",
-               "access": $at,
-               "refresh": $rt
-           } | .lastGood["openai-codex"] = "openai-codex:default"' \
-           "$AUTH_PROFILES" > "${AUTH_PROFILES}.tmp" \
-           && mv "${AUTH_PROFILES}.tmp" "$AUTH_PROFILES"
-        ok "auth-profiles.json updated (merged Codex tokens, mode 600)"
+
+# Write OPENAI_API_KEY to ~/.openclaw/.env if set
+if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    OPENCLAW_ENV_FILE="${HOME_DIR}/.openclaw/.env"
+    if $DRY_RUN; then
+        echo "  [dry-run] Would write OPENAI_API_KEY to ~/.openclaw/.env"
     else
-        # Create fresh file
-        jq --null-input \
-           --arg at "$OPENAI_ACCESS_TOKEN" \
-           --arg rt "$OPENAI_REFRESH_TOKEN" \
-           '{
-               "version": 1,
-               "profiles": {
-                   "openai-codex:default": {
-                       "type": "oauth",
-                       "provider": "openai-codex",
-                       "access": $at,
-                       "refresh": $rt
-                   }
-               },
-               "lastGood": {
-                   "openai-codex": "openai-codex:default"
-               }
-           }' > "$AUTH_PROFILES"
-        ok "auth-profiles.json generated (mode 600)"
+        touch "$OPENCLAW_ENV_FILE"
+        chmod 600 "$OPENCLAW_ENV_FILE"
+        if grep -q "^OPENAI_API_KEY=" "$OPENCLAW_ENV_FILE" 2>/dev/null; then
+            sed -i "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=${OPENAI_API_KEY}|" "$OPENCLAW_ENV_FILE"
+        else
+            echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> "$OPENCLAW_ENV_FILE"
+        fi
+        ok "OPENAI_API_KEY written to ~/.openclaw/.env"
     fi
-    chmod 600 "$AUTH_PROFILES"
+fi
+
+# ============================================================================
+# PLUGIN INSTALLATION
+# ============================================================================
+
+# ── Plugin installation ────────────────────────────────────────────────────────
+step "Installing plugins..."
+
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  info "[dry-run] Would install: plugins based on provided API keys"
 else
-    echo "  [dry-run] Would write auth-profiles.json"
+  # Brave Search — install only if API key provided
+  if [[ -n "${BRAVE_SEARCH_KEY:-}" ]]; then
+    info "Installing Brave Search plugin..."
+    openclaw plugins install clawhub:brave 2>&1 \
+      && ok "Brave Search plugin installed" \
+      || warn "Brave Search plugin install failed — web search may be unavailable"
+  fi
+
+  # Slack — install only if bot token provided
+  if [[ -n "${SLACK_BOT_TOKEN:-}" ]]; then
+    info "Installing Slack plugin..."
+    openclaw plugins install @openclaw/slack 2>&1 \
+      && ok "Slack plugin installed" \
+      || warn "Slack plugin install failed — Slack channel will be unavailable"
+  fi
+fi
+
+# Apply integration key config
+if [[ -n "${BRAVE_SEARCH_KEY:-}" ]] && [[ "${DRY_RUN:-false}" != "true" ]]; then
+  openclaw config set tools.webSearch.enabled true 2>/dev/null || true
+  openclaw config set tools.webSearch.provider brave 2>/dev/null || true
 fi
 
 # ============================================================================
@@ -544,17 +541,7 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR}/bus" ]; th
     export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
 fi
 
-SYSTEMD_DIR="${HOME_DIR}/.config/systemd/user"
-run mkdir -p "$SYSTEMD_DIR"
-
-render_template "${SCRIPT_DIR}/templates/openclaw-gateway.service.tmpl" \
-    "${SYSTEMD_DIR}/openclaw-gateway.service"
-
 if ! $DRY_RUN; then
-    chmod 700 "$SYSTEMD_DIR"
-    chmod 600 "${SYSTEMD_DIR}/openclaw-gateway.service"
-    ok "openclaw-gateway.service: permissions set to 600"
-
     # Stop this user's existing gateway before the port check so a previous
     # onboard or setup run doesn't falsely trigger the conflict check.
     if timeout 3 systemctl --user is-active openclaw-gateway.service &>/dev/null 2>&1; then
@@ -574,23 +561,14 @@ if ! $DRY_RUN; then
     fi
 fi
 
-if ! $DRY_RUN; then
-    # Test systemd --user access with detailed diagnostics
-    SYSTEMD_ERROR=$(systemctl --user daemon-reload 2>&1)
-    if [ $? -eq 0 ]; then
-        systemctl --user enable openclaw-gateway.service
-        ok "openclaw-gateway.service enabled"
-    else
-        warn "systemd user services unavailable — skipping service enable"
-        if echo "$SYSTEMD_ERROR" | grep -qi "permission denied"; then
-            warn "D-Bus permission denied — you need a fresh login session"
-            warn "Exit and log in again as ${BOT_USER} (don't use 'su'), then re-run setup.sh"
-        elif echo "$SYSTEMD_ERROR" | grep -qi "no such file"; then
-            warn "systemd --user not available on this system"
-        else
-            warn "Error: $SYSTEMD_ERROR"
-        fi
-    fi
+step "Installing gateway as persistent systemd service..."
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  info "[dry-run] Would run: openclaw gateway install"
+else
+  openclaw gateway install 2>&1 || {
+    warn "openclaw gateway install failed — gateway will not auto-start on login."
+    warn "Run 'openclaw gateway install' manually once Openclaw is configured."
+  }
 fi
 
 # ============================================================================
@@ -625,19 +603,6 @@ add_cron_if_missing "rotate-config.sh" \
 
 add_cron_if_missing "watchdog.sh" \
     "*/5 * * * * ${HOME_DIR}/watchdog.sh"
-
-# Codex token auto-refresh
-CODEX_REFRESH_DST="${HOME_DIR}/codex-refresh.sh"
-if [ ! -f "$CODEX_REFRESH_DST" ]; then
-    render_script_template "${SCRIPT_DIR}/scripts/codex-refresh.sh.tmpl" "$CODEX_REFRESH_DST" \
-        '$BOT_NAME $BOT_NAME_LOWER $TELEGRAM_BOT_TOKEN $TELEGRAM_USER_ID'
-    run chmod 700 "$CODEX_REFRESH_DST"
-    ok "codex-refresh.sh → ~/codex-refresh.sh"
-else
-    ok "codex-refresh.sh: already exists (preserved)"
-fi
-add_cron_if_missing "codex-refresh.sh" \
-    "0 4 * * * ${HOME_DIR}/codex-refresh.sh >> ${HOME_DIR}/${BOT_NAME_LOWER}-codex-refresh.log 2>&1"
 
 # Openclaw internal cron jobs
 render_template "${SCRIPT_DIR}/cron/jobs.json.tmpl" "${HOME_DIR}/.openclaw/cron/jobs.json"
@@ -753,6 +718,13 @@ echo "   http://127.0.0.1:${GATEWAY_PORT}/?token=${GATEWAY_TOKEN}"
 echo ""
 echo "   ⚠️  IMPORTANT: Bookmark this URL or save it in your password manager!"
 echo "   Without the token parameter, you'll need to enter it manually each time."
+echo ""
+echo "3. Complete OpenAI auth (choose one):"
+echo "   OAuth (recommended): openclaw models auth login --provider openai"
+echo "   API key:             set OPENAI_API_KEY in .env and re-run setup.sh"
+echo ""
+echo "   Then select your model and adjust settings interactively:"
+echo "   openclaw configure"
 echo ""
 if ! $SYSTEMD_WORKING; then
     echo "3. Start the Gateway (systemd user services unavailable):"
