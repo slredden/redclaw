@@ -251,7 +251,7 @@ rather than a hardcoded list, so a newly added bot user is picked up automatical
 Run `sudo ./update-openclaw.sh --dry-run` first to preview without changing anything.
 
 Default managed users for the helper scripts are `marrowagent:18789`,
-`infolkai:18800`, `outfitai:18900`, and `rebarai:18793`. Override that list
+`infolkai:18989`, `outfitai:19189`, and `rebarai:19389`. Override that list
 for one command with:
 
 ```bash

@@ -256,21 +256,38 @@ if [ "${OC_DO_RESTART}" = "1" ]; then
     else
         openclaw daemon start
     fi
-    sleep 4
 else
     echo "  [dry-run] would restart gateway here"
 fi
 
-status_after="$(openclaw daemon status 2>&1)"
-echo "$status_after" | sed 's/^/    /'
-runtime_after="$(echo "$status_after" | grep -E '^Runtime:')"
-
 if [ "${OC_DO_RESTART}" = "1" ]; then
-    if ! echo "$runtime_after" | grep -qi "running"; then
-        echo "  [ERROR] gateway NOT running for ${me} after restart"
+    # Runtime: running only means systemd sees a live process -- it does
+    # NOT mean the gateway actually came up. It can stay "running" while
+    # crash-looping through startup migrations, never opening its port.
+    # Poll for a few seconds and require Connectivity probe: ok (with no
+    # ECONNREFUSED/"not listening") before calling it healthy, instead of
+    # trusting Runtime alone.
+    healthy=false
+    for attempt in 1 2 3 4 5; do
+        sleep 4
+        status_after="$(openclaw daemon status 2>&1)"
+        if echo "$status_after" | grep -qi "^Runtime: running" \
+            && echo "$status_after" | grep -qi "Connectivity probe: ok" \
+            && ! echo "$status_after" | grep -qi "ECONNREFUSED" \
+            && ! echo "$status_after" | grep -qi "not listening"; then
+            healthy=true
+            break
+        fi
+    done
+    echo "$status_after" | sed 's/^/    /'
+    if ! $healthy; then
+        echo "  [ERROR] gateway NOT reachable for ${me} after restart (Runtime may say 'running' while crash-looping -- check Connectivity probe/ECONNREFUSED above, and journalctl --user -u openclaw-gateway.service)"
         exit 1
     fi
-    echo "  [OK] gateway running"
+    echo "  [OK] gateway running and reachable"
+else
+    status_after="$(openclaw daemon status 2>&1)"
+    echo "$status_after" | sed 's/^/    /'
 fi
 
 echo "  -- doctor --post-upgrade --"
@@ -363,6 +380,27 @@ else
         err "openclaw --version failed after update"
         exit 1
     fi
+fi
+
+# ============================================================================
+# KNOWN-BUG CHECK: npm view --json array-wrapping (blocks ALL gateways)
+# ============================================================================
+# npm 12.x wraps `npm view <pkg> field1 field2 ... --json` in a single-
+# element array; OpenClaw's plugin-metadata code doesn't handle that and
+# aborts gateway startup migrations entirely -- not a per-plugin failure,
+# the whole gateway won't come up. Confirmed unfixed in 2026.7.1 stable and
+# 2026.7.2-beta.1 as of 2026-07-15. This check is a no-op once a future
+# OpenClaw version fixes it upstream (it only patches if the exact buggy
+# line is still present), so it's safe to leave in permanently.
+
+step "Checking for the npm-view array-JSON bug (blocks gateway startup)"
+
+if $DRY_RUN; then
+    echo "  [dry-run] Would run: $(dirname "$0")/scripts/openclaw-npm-view-patch"
+elif [ -x "$(dirname "$0")/scripts/openclaw-npm-view-patch" ]; then
+    "$(dirname "$0")/scripts/openclaw-npm-view-patch"
+else
+    warn "scripts/openclaw-npm-view-patch not found or not executable -- skipping. If gateways fail to start with 'npm view produced incomplete package metadata', see that script for the manual fix."
 fi
 
 # ============================================================================

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Detects and fixes a real OpenClaw bug: npm 12.x wraps `npm view <pkg>
+# field1 field2 ... --json` output in a single-element array, but
+# OpenClaw's resolveNpmSpecMetadata() (install-source-utils-*.js) parses
+# the result and reads .name/.version directly off it, which only works
+# for a flat object. On an array those are undefined, so it always
+# reports "npm view produced incomplete package metadata" and aborts
+# gateway startup migrations -- blocking the whole gateway, not just one
+# plugin, on every restart, for any account whose config implicitly or
+# explicitly requires a version-bound runtime plugin (currently: codex).
+#
+# Confirmed present in OpenClaw 2026.7.1 stable AND 2026.7.2-beta.1 as of
+# 2026-07-15 -- not yet fixed upstream. This script re-checks and
+# re-applies the patch every time it's run, so it's a safe no-op once a
+# real fix ships (it only patches if the exact buggy line is still
+# present) and self-heals after any `npm install -g openclaw@...` that
+# silently overwrites the vendored files.
+#
+# Usage: sudo openclaw-npm-view-patch
+# Exit codes: 0 = patched or already-patched or not-needed; 1 = error
+
+if [ "${EUID}" -ne 0 ]; then
+  echo "Run as root: sudo $0" >&2
+  exit 1
+fi
+
+TARGET_FILE="$(grep -rln 'npm view produced incomplete package metadata' /usr/lib/node_modules/openclaw/dist/*.js 2>/dev/null | head -n1)"
+
+if [ -z "$TARGET_FILE" ]; then
+  echo "[warn] could not locate the install-source-utils module under /usr/lib/node_modules/openclaw/dist -- OpenClaw's internals may have changed. Skipping; investigate manually if gateways fail to start with 'npm view produced incomplete package metadata'." >&2
+  exit 0
+fi
+
+if grep -qF 'const npmViewResult = JSON.parse(res.stdout.trim());' "$TARGET_FILE"; then
+  echo "[ok] patch already present in ${TARGET_FILE}"
+  exit 0
+fi
+
+if ! grep -qF 'const metadata = normalizeNpmViewMetadata(JSON.parse(res.stdout.trim()));' "$TARGET_FILE"; then
+  echo "[ok] buggy line pattern not found in ${TARGET_FILE} -- likely fixed upstream in this version, or the code changed shape. Not patching."
+  exit 0
+fi
+
+echo "[!] npm-view-array bug present in ${TARGET_FILE} (this OpenClaw version has NOT fixed it upstream) -- applying patch"
+BACKUP="${TARGET_FILE}.pre-npm-array-patch.$(date +%Y%m%d%H%M%S).bak"
+cp "$TARGET_FILE" "$BACKUP"
+
+perl -i -pe 's/\tconst metadata = normalizeNpmViewMetadata\(JSON\.parse\(res\.stdout\.trim\(\)\)\);/\tconst npmViewResult = JSON.parse(res.stdout.trim());\n\t\tconst metadata = normalizeNpmViewMetadata(Array.isArray(npmViewResult) ? npmViewResult[0] : npmViewResult);/' "$TARGET_FILE"
+
+if node --check "$TARGET_FILE" 2>&1; then
+  echo "[ok] patch applied and syntax-checked (backup: ${BACKUP})"
+  exit 0
+else
+  echo "[ERROR] patch broke syntax -- restoring backup" >&2
+  cp "$BACKUP" "$TARGET_FILE"
+  exit 1
+fi

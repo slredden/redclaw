@@ -3,9 +3,9 @@ set -euo pipefail
 
 DEFAULT_OPENCLAW_USERS=(
   "marrowagent:18789"
-  "infolkai:18800"
-  "outfitai:18900"
-  "rebarai:18793"
+  "infolkai:18989"
+  "outfitai:19189"
+  "rebarai:19389"
 )
 
 if [ "${EUID}" -ne 0 ]; then
