@@ -227,6 +227,33 @@ The canonical template uses `"providers": {}` (empty) so the built-in defaults a
 apply. Never add `api` or `baseUrl` to a custom provider entry unless you have a
 specific reason to override the built-in.
 
+**Known bug — npm view array-wrapping blocks gateway startup entirely (unfixed
+as of Openclaw 2026.7.1 stable and 2026.7.2-beta.1):** npm 12.x wraps
+`npm view <pkg> field1 field2 ... --json` output in a single-element array
+instead of a flat object. Openclaw's plugin-metadata code doesn't handle
+that and reports `npm view produced incomplete package metadata`, which
+aborts *all* startup migrations — not just one plugin's install. This can
+take down a gateway that was working fine before the restart, and hits any
+account whose config implicitly or explicitly requires a version-bound
+runtime plugin (currently just `codex` — including implicitly, for any
+account whose OpenAI auth uses OAuth/ChatGPT-subscription login rather than
+a plain API key, since that auto-requires the `codex` runtime). Symptom in
+`journalctl --user -u openclaw-gateway.service`: repeated
+`OpenClaw startup migrations did not complete cleanly` followed by
+`OpenClaw startup migrations are already running for this state directory`
+on rapid auto-restarts (a stale migration lock from the aborted attempt),
+which can burn through systemd's restart-limit-burst and leave the service
+fully stopped.
+
+`update-openclaw.sh` runs `scripts/openclaw-npm-view-patch` automatically
+after every npm install, before restarting any gateway. It's a one-line
+local patch to the installed package (unwraps the array before parsing),
+re-checked and safely no-op'd once a real fix ships upstream — but it only
+protects accounts updated through this script. If you ever update Openclaw
+manually (`sudo npm install -g openclaw@latest` outside this repo), run
+`sudo ./scripts/openclaw-npm-view-patch` yourself before restarting
+gateways, or you can hit this cold.
+
 ### Shared admin scripts
 
 This repo includes shared-server helpers in `scripts/`:
@@ -241,8 +268,16 @@ sudo ./scripts/openclaw-apply-gateway-limits
 # Restart all known gateways after a Node.js or config change:
 sudo ./scripts/openclaw-users-restart
 
-# Full global update flow: backup, npm update, per-account config validate,
-# gateway restart, and openclaw doctor lint/post-upgrade checks + auto-fix:
+# Detect + patch the npm view array-wrapping bug (see "Updating Openclaw"
+# above). Safe to run any time; no-ops if already patched or already fixed
+# upstream. update-openclaw.sh runs this automatically -- use directly only
+# if you updated Openclaw outside this repo's scripts:
+sudo ./scripts/openclaw-npm-view-patch
+
+# Full global update flow: backup, npm update, npm-view-bug check/patch,
+# per-account config validate, gateway restart (verified by an actual
+# connectivity probe, not just systemd "active" state), and openclaw
+# doctor lint/post-upgrade checks + auto-fix:
 sudo ./update-openclaw.sh
 ```
 

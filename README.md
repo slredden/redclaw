@@ -253,9 +253,12 @@ sudo ./update-openclaw.sh
 ```
 
 This discovers every bot account automatically, backs up its `~/.openclaw`,
-updates the npm package once, then validates config, restarts each gateway,
-and runs `openclaw doctor` checks/fixes per account. Add `--dry-run` to preview
-first. See RUNBOOK.md → "Updating Openclaw" for manual steps and options.
+updates the npm package once, checks/patches a known npm compatibility bug
+that can otherwise block every gateway from starting, then validates config,
+restarts each gateway (verified with an actual connectivity probe, not just
+"systemd says it's active"), and runs `openclaw doctor` checks/fixes per
+account. Add `--dry-run` to preview first. See RUNBOOK.md → "Updating Openclaw"
+for manual steps, options, and the npm-bug details.
 
 > **Note:** Do NOT use `openclaw update` — it does not work for npm installs.
 
