@@ -192,20 +192,24 @@ ss -tuln | grep 18
 ## Updating Openclaw
 
 Openclaw is installed system-wide — updating it affects **all bot users** simultaneously.
+**Use `sudo ./update-openclaw.sh`** (see "Shared admin scripts" below) — it wraps
+all of the steps below, plus per-account config validation and
+`openclaw doctor` checks/fixes, across every bot account automatically.
+
+Manual steps, for reference or a single-account setup without this repo checked out:
 
 ```bash
 # As admin:
 sudo npm install -g openclaw@latest
 
-# Verify installation:
+# Verify installation (don't check for a specific dist/ filename — the
+# built bundle's internal filenames change release to release):
 which openclaw && openclaw --version
 
-# Verify the ExecStart path still matches the actual entrypoint:
-ls /usr/lib/node_modules/openclaw/dist/index.js
-
-# As each bot user — reload and restart their gateway:
-systemctl --user daemon-reload
-openclaw gateway restart
+# As each bot user — validate config, then reload and restart their gateway:
+openclaw config validate
+openclaw daemon restart
+openclaw doctor --lint
 openclaw health
 ```
 
@@ -237,9 +241,14 @@ sudo ./scripts/openclaw-apply-gateway-limits
 # Restart all known gateways after a Node.js or config change:
 sudo ./scripts/openclaw-users-restart
 
-# Full global update flow with backups, discovery, and health checks:
+# Full global update flow: backup, npm update, per-account config validate,
+# gateway restart, and openclaw doctor lint/post-upgrade checks + auto-fix:
 sudo ./update-openclaw.sh
 ```
+
+`update-openclaw.sh` auto-discovers bot accounts from `/home/*/.openclaw/openclaw.json`
+rather than a hardcoded list, so a newly added bot user is picked up automatically.
+Run `sudo ./update-openclaw.sh --dry-run` first to preview without changing anything.
 
 Default managed users for the helper scripts are `marrowagent:18789`,
 `infolkai:18800`, `outfitai:18900`, and `rebarai:18793`. Override that list

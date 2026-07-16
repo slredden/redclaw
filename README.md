@@ -249,13 +249,13 @@ Convention: first bot 18789, second 18790, third 18791, etc.
 Openclaw is installed system-wide — updating affects all bot users on the server.
 
 ```bash
-# As admin:
-sudo npm install -g openclaw@latest
-
-# As each bot user — restart their gateway:
-systemctl --user restart openclaw-gateway
-openclaw health
+sudo ./update-openclaw.sh
 ```
+
+This discovers every bot account automatically, backs up its `~/.openclaw`,
+updates the npm package once, then validates config, restarts each gateway,
+and runs `openclaw doctor` checks/fixes per account. Add `--dry-run` to preview
+first. See RUNBOOK.md → "Updating Openclaw" for manual steps and options.
 
 > **Note:** Do NOT use `openclaw update` — it does not work for npm installs.
 

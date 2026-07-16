@@ -1,20 +1,26 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env bash
+set -uo pipefail
 
 # ============================================================================
-# Openclaw System-Wide Update Script
-# Updates the system Openclaw binary and restarts all bot user gateways.
-# Must be run with sudo (or as root).
+# Openclaw System-Wide Update
+#
+# One entry point to: (1) update the system-wide Openclaw npm package,
+# (2) verify every account running Openclaw is still configured correctly,
+# and (3) restart each account's gateway and surface/auto-fix any errors
+# that show up afterward.
+#
+# Must be run with sudo/root (it needs to `npm install -g` and `sudo -iu`
+# into each bot account).
+#
+# Bot accounts are auto-discovered as every /home/<user> that has a real
+# ~/.openclaw/openclaw.json — not a hardcoded list, so a new bot user added
+# via add-bot.sh is picked up automatically. The admin account (whoever
+# invoked sudo, via $SUDO_USER) is excluded by default, since an admin's
+# own ~/.openclaw is typically a personal instance, not a managed bot
+# account -- override with --only/--exclude if that's not true for you.
 # ============================================================================
 
-# --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -25,331 +31,355 @@ step()  { echo -e "\n${GREEN}==>${NC} ${BOLD}$1${NC}"; }
 TARGET_VERSION="latest"
 DRY_RUN=false
 SKIP_BACKUP=false
-ROLLBACK_VERSION=""
+NO_FIX=false
+ONLY_USERS=()
+# Auto-exclude whoever invoked sudo (the admin account) -- no hardcoded
+# username, so this works for any deployer, not just this server.
+EXCLUDE_USERS=()
+[ -n "${SUDO_USER:-}" ] && EXCLUDE_USERS+=("$SUDO_USER")
+LOG_DIR="/var/log/openclaw-admin"
 
-# --- Argument parsing ---
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: sudo $(basename "$0") [OPTIONS]
 
-Updates Openclaw system-wide and restarts all bot user gateways.
-Requires sudo.
+Updates Openclaw system-wide (npm), then for every bot account:
+validates its config, restarts its gateway, and checks/fixes errors.
 
 Options:
-  --version <ver>    Install specific version (default: latest)
-  --dry-run          Show what would be done without making changes
-  --skip-backup      Skip per-user config backups
-  --rollback <ver>   Rollback to a specific version
-  --help             Show this help message
+  --version <ver>     Install openclaw@<ver> (default: latest)
+  --rollback <ver>    Alias for --version, named for rollback use
+  --only <u1,u2>      Only operate on these accounts (skip auto-discovery)
+  --exclude <u1,u2>   Additionally exclude these accounts from discovery
+  --dry-run           Discover + validate only; no npm install, no restarts,
+                      no --fix, no backups
+  --skip-backup       Skip per-user ~/.openclaw backups before updating
+  --no-fix            Report doctor findings but don't run 'openclaw doctor --fix'
+  --help              Show this help
 
 Examples:
-  sudo ./update-openclaw.sh                  # Update to latest
-  sudo ./update-openclaw.sh --version 1.2.3  # Install specific version
-  sudo ./update-openclaw.sh --dry-run        # Preview changes
-  sudo ./update-openclaw.sh --rollback 1.1.0 # Rollback to 1.1.0
+  sudo ./update-openclaw.sh
+  sudo ./update-openclaw.sh --dry-run
+  sudo ./update-openclaw.sh --version 2026.7.2-beta.1
+  sudo ./update-openclaw.sh --rollback 2026.7.1
+  sudo ./update-openclaw.sh --only outfitai
 EOF
     exit 0
 }
 
 while [[ $# -gt 0 ]]; do
-    case $1 in
-        --version)   TARGET_VERSION="$2"; shift 2 ;;
-        --dry-run)   DRY_RUN=true; shift ;;
-        --skip-backup) SKIP_BACKUP=true; shift ;;
-        --rollback)  ROLLBACK_VERSION="$2"; shift 2 ;;
-        --help)      usage ;;
-        *)           err "Unknown option: $1"; usage ;;
+    case "$1" in
+        --version)     TARGET_VERSION="$2"; shift 2 ;;
+        --rollback)     TARGET_VERSION="$2"; shift 2 ;;
+        --only)         IFS=',' read -r -a ONLY_USERS <<< "$2"; shift 2 ;;
+        --exclude)      IFS=',' read -r -a extra <<< "$2"; EXCLUDE_USERS+=("${extra[@]}"); shift 2 ;;
+        --dry-run)      DRY_RUN=true; shift ;;
+        --skip-backup)  SKIP_BACKUP=true; shift ;;
+        --no-fix)       NO_FIX=true; shift ;;
+        --help|-h)      usage ;;
+        *)              err "Unknown option: $1"; usage ;;
     esac
 done
 
-# Use rollback version if specified
-if [ -n "$ROLLBACK_VERSION" ]; then
-    TARGET_VERSION="$ROLLBACK_VERSION"
-    info "Rollback mode: targeting version ${TARGET_VERSION}"
-fi
-
-# --- Root check ---
 if [ "$(id -u)" -ne 0 ]; then
     err "This script must be run with sudo (or as root)."
     echo "  sudo $0 $*"
     exit 1
 fi
 
-# --- Helper ---
-run() {
-    if $DRY_RUN; then
-        echo "  [dry-run] $*"
-    else
-        "$@"
-    fi
-}
+mkdir -p "$LOG_DIR"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+LOG_FILE="${LOG_DIR}/global-update-${STAMP}.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+info "Logging to ${LOG_FILE}"
 
 # ============================================================================
-# DISCOVER BOT USERS
+# DISCOVER BOT ACCOUNTS
 # ============================================================================
 
-step "Discovering bot users"
+step "Discovering Openclaw accounts"
 
 BOT_USERS=()
-for home_dir in /home/*/; do
-    username=$(basename "$home_dir")
-    if [ -d "${home_dir}.openclaw" ]; then
-        BOT_USERS+=("$username")
-    fi
-done
-
-if [ ${#BOT_USERS[@]} -eq 0 ]; then
-    warn "No bot users found (no /home/*/.openclaw/ directories)"
-    echo "  Nothing to update."
-    exit 0
+if [ ${#ONLY_USERS[@]} -gt 0 ]; then
+    BOT_USERS=("${ONLY_USERS[@]}")
+else
+    for home_dir in /home/*/; do
+        u="$(basename "$home_dir")"
+        excluded=false
+        for e in "${EXCLUDE_USERS[@]}"; do
+            [ "$u" = "$e" ] && excluded=true && break
+        done
+        $excluded && continue
+        if [ -f "${home_dir}.openclaw/openclaw.json" ]; then
+            BOT_USERS+=("$u")
+        fi
+    done
 fi
 
-ok "Found ${#BOT_USERS[@]} bot user(s): ${BOT_USERS[*]}"
+if [ ${#BOT_USERS[@]} -eq 0 ]; then
+    warn "No Openclaw accounts found (looked for /home/*/.openclaw/openclaw.json)"
+    exit 0
+fi
+ok "Found ${#BOT_USERS[@]} account(s): ${BOT_USERS[*]}"
 
 # ============================================================================
-# PRE-FLIGHT CHECKS
+# PRE-FLIGHT
 # ============================================================================
 
 step "Pre-flight checks"
 
-# Current version
 if command -v openclaw &>/dev/null; then
-    CURRENT_VERSION=$(openclaw --version 2>/dev/null | head -1)
-    ok "Current Openclaw version: ${CURRENT_VERSION}"
+    CURRENT_VERSION="$(openclaw --version 2>/dev/null | head -1)"
 else
-    warn "Openclaw not currently installed"
     CURRENT_VERSION="(not installed)"
 fi
+ok "Current Openclaw version: ${CURRENT_VERSION}"
 
-# Verify npm is available
 if ! command -v npm &>/dev/null; then
-    err "npm not found — cannot update Openclaw"
+    err "npm not found -- cannot update Openclaw"
     exit 1
 fi
 ok "npm: $(npm --version)"
 
-# Check the expected entrypoint path
-ENTRYPOINT="/usr/lib/node_modules/openclaw/dist/index.js"
-if [ -f "$ENTRYPOINT" ]; then
-    ok "Entrypoint exists: ${ENTRYPOINT}"
-else
-    warn "Expected entrypoint not found: ${ENTRYPOINT}"
-    warn "This may be normal if Openclaw is installed elsewhere"
+if ! command -v jq &>/dev/null; then
+    warn "jq not found -- per-user finding counts/details will be degraded"
 fi
 
 # ============================================================================
-# BACKUP CONFIGS
+# BACKUPS
 # ============================================================================
 
-if ! $SKIP_BACKUP; then
-    step "Backing up user configs"
-
-    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+if ! $SKIP_BACKUP && ! $DRY_RUN; then
+    step "Backing up ~/.openclaw for each account"
     for user in "${BOT_USERS[@]}"; do
-        home="/home/${user}"
-        backup_file="${home}/openclaw-backup-${TIMESTAMP}.tar.gz"
-
-        if $DRY_RUN; then
-            echo "  [dry-run] Would backup ${home}/.openclaw/ → ${backup_file}"
+        backup_file="/home/${user}/openclaw-backup-${STAMP}.tar.gz"
+        if tar -czf "$backup_file" -C "/home/${user}" .openclaw 2>/dev/null; then
+            chown "${user}:${user}" "$backup_file"
+            ok "${user}: backed up to $(basename "$backup_file")"
         else
-            tar -czf "$backup_file" -C "$home" .openclaw/ 2>/dev/null && {
-                chown "${user}:${user}" "$backup_file"
-                ok "${user}: backed up to $(basename "$backup_file")"
-            } || {
-                warn "${user}: backup failed (continuing anyway)"
-            }
+            warn "${user}: backup failed (continuing anyway)"
         fi
     done
 else
-    info "Skipping backups (--skip-backup)"
+    info "Skipping backups"
 fi
 
 # ============================================================================
-# STOP GATEWAYS
+# PER-USER CHECK FUNCTION (reused for both baseline and post-update passes)
 # ============================================================================
 
-step "Stopping bot gateways"
+# Runs entirely as the target account via `sudo -iu`. Prints tagged lines
+# ([OK]/[WARN]/[ERROR]/[ACTION NEEDED]/[SKIP]) and exits with a status code
+# the caller interprets:
+#   0 = healthy / nothing to do
+#   1 = gateway failed to (re)start
+#   2 = doctor errors remain after --fix (or after report-only check)
+#   3 = gateway service installed but disabled -- needs manual enable
+#   4 = no config file / CLI -- account skipped
+run_check_for_user() {
+    local user="$1" phase="$2" do_restart="$3" do_fix="$4"
 
-declare -A USER_WAS_RUNNING
+    sudo -iu "$user" \
+        OC_PHASE="$phase" OC_DO_RESTART="$do_restart" OC_DO_FIX="$do_fix" \
+        bash -s <<'PERUSER'
+set -uo pipefail
+me="$(whoami)"
+phase="${OC_PHASE}"
+echo "--- ${me} (${phase}) ---"
 
-for user in "${BOT_USERS[@]}"; do
-    uid=$(id -u "$user" 2>/dev/null || true)
-    if [ -z "$uid" ]; then
-        warn "${user}: could not determine UID — skipping"
-        continue
+if ! command -v openclaw >/dev/null 2>&1; then
+    echo "  [SKIP] openclaw CLI not on PATH for ${me}"
+    exit 4
+fi
+
+CFG_RAW="$(openclaw config file 2>/dev/null | tail -n1)"
+CFG="${CFG_RAW/#\~/$HOME}"
+if [ -z "$CFG" ] || [ ! -f "$CFG" ]; then
+    echo "  [SKIP] no config file found for ${me} (raw: '${CFG_RAW}')"
+    exit 4
+fi
+echo "  config: ${CFG}"
+
+echo "  -- config validate --"
+if openclaw config validate >/tmp/oc-validate.$$.log 2>&1; then
+    echo "  [OK] config valid"
+else
+    echo "  [ERROR] config validate FAILED:"
+    sed 's/^/    /' /tmp/oc-validate.$$.log
+fi
+rm -f /tmp/oc-validate.$$.log
+
+echo "  -- doctor --lint --"
+lint_json="$(openclaw doctor --lint --json 2>/dev/null)"
+if command -v jq >/dev/null 2>&1 && [ -n "$lint_json" ]; then
+    errs="$(echo "$lint_json" | jq -r '[.findings[]? | select(.severity=="error")] | length' 2>/dev/null)"
+    warns="$(echo "$lint_json" | jq -r '[.findings[]? | select(.severity=="warning")] | length' 2>/dev/null)"
+    echo "  doctor --lint: ${errs:-?} error(s), ${warns:-?} warning(s)"
+    if [ "${errs:-0}" != "0" ] && [ -n "${errs:-}" ]; then
+        echo "$lint_json" | jq -r '.findings[]? | select(.severity=="error") | "    - [\(.checkId)] \(.message)"' 2>/dev/null
     fi
+else
+    errs="?"
+    echo "  doctor --lint: (jq unavailable or no output; raw below)"
+    echo "$lint_json" | sed 's/^/    /'
+fi
 
-    runtime_dir="/run/user/${uid}"
-    bus_path="${runtime_dir}/bus"
+if [ "$phase" = "baseline" ]; then
+    # Baseline pass: report-only, no restarts or fixes.
+    if [ "${errs:-0}" != "0" ]; then
+        exit 2
+    fi
+    exit 0
+fi
 
-    if [ -S "$bus_path" ]; then
-        was_active=false
-        if sudo -u "$user" env \
-            XDG_RUNTIME_DIR="$runtime_dir" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-            systemctl --user is-active openclaw-gateway.service &>/dev/null 2>&1; then
-            was_active=true
-        fi
+echo "  -- daemon status (before restart) --"
+status_before="$(openclaw daemon status 2>&1)"
+echo "$status_before" | sed 's/^/    /'
+service_line="$(echo "$status_before" | grep -E '^Service:')"
+runtime_line="$(echo "$status_before" | grep -E '^Runtime:')"
 
-        USER_WAS_RUNNING[$user]=$was_active
+if echo "$service_line" | grep -qi "not installed"; then
+    echo "  [NOTE] gateway service not installed for ${me} -- nothing to restart"
+    exit 0
+fi
 
-        if $was_active; then
-            if $DRY_RUN; then
-                echo "  [dry-run] Would stop gateway for ${user}"
-            else
-                sudo -u "$user" env \
-                    XDG_RUNTIME_DIR="$runtime_dir" \
-                    DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-                    systemctl --user stop openclaw-gateway.service 2>/dev/null || true
-                ok "${user}: gateway stopped"
-            fi
-        else
-            info "${user}: gateway was not running"
-        fi
+if echo "$service_line" | grep -qi "disabled"; then
+    echo "  [ACTION NEEDED] gateway service installed but disabled for ${me}."
+    echo "    Run manually as ${me}: openclaw daemon start   (or: openclaw daemon install)"
+    exit 3
+fi
+
+if [ "${OC_DO_RESTART}" = "1" ]; then
+    echo "  -- restarting gateway --"
+    if echo "$runtime_line" | grep -qi "running"; then
+        openclaw daemon restart
     else
-        USER_WAS_RUNNING[$user]=false
-        info "${user}: no D-Bus socket — gateway not managed by systemd"
+        openclaw daemon start
+    fi
+    sleep 4
+else
+    echo "  [dry-run] would restart gateway here"
+fi
+
+status_after="$(openclaw daemon status 2>&1)"
+echo "$status_after" | sed 's/^/    /'
+runtime_after="$(echo "$status_after" | grep -E '^Runtime:')"
+
+if [ "${OC_DO_RESTART}" = "1" ]; then
+    if ! echo "$runtime_after" | grep -qi "running"; then
+        echo "  [ERROR] gateway NOT running for ${me} after restart"
+        exit 1
+    fi
+    echo "  [OK] gateway running"
+fi
+
+echo "  -- doctor --post-upgrade --"
+pu_json="$(openclaw doctor --post-upgrade --json 2>/dev/null)"
+if command -v jq >/dev/null 2>&1 && [ -n "$pu_json" ]; then
+    pu_findings="$(echo "$pu_json" | jq -r '.findings? | length' 2>/dev/null)"
+else
+    pu_findings="?"
+fi
+if [ "${pu_findings:-0}" != "0" ] && [ -n "${pu_findings:-}" ]; then
+    echo "  [WARN] post-upgrade findings for ${me}:"
+    echo "$pu_json" | jq -r '.findings[]? | "    - [\(.level)] \(.code): \(.message)"' 2>/dev/null
+else
+    echo "  [OK] no post-upgrade plugin-compat findings"
+fi
+
+needs_fix=false
+[ "${errs:-0}" != "0" ] && [ -n "${errs:-}" ] && needs_fix=true
+[ "${pu_findings:-0}" != "0" ] && [ -n "${pu_findings:-}" ] && needs_fix=true
+
+if $needs_fix && [ "${OC_DO_FIX}" = "1" ]; then
+    echo "  -- attempting openclaw doctor --fix --"
+    openclaw doctor --fix --non-interactive 2>&1 | sed 's/^/    /'
+fi
+
+echo "  -- final doctor --lint --"
+lint_final="$(openclaw doctor --lint --json 2>/dev/null)"
+if command -v jq >/dev/null 2>&1 && [ -n "$lint_final" ]; then
+    final_errs="$(echo "$lint_final" | jq -r '[.findings[]? | select(.severity=="error")] | length' 2>/dev/null)"
+else
+    final_errs="?"
+fi
+echo "  final error count: ${final_errs:-?}"
+
+if [ "${final_errs:-0}" != "0" ] && [ -n "${final_errs:-}" ]; then
+    exit 2
+fi
+exit 0
+PERUSER
+    return $?
+}
+
+# ============================================================================
+# BASELINE (pre-update) PASS
+# ============================================================================
+
+step "Baseline check (before update)"
+
+declare -A BASELINE_STATUS
+for user in "${BOT_USERS[@]}"; do
+    if run_check_for_user "$user" "baseline" "0" "0"; then
+        BASELINE_STATUS[$user]=0
+    else
+        BASELINE_STATUS[$user]=$?
     fi
 done
 
 # ============================================================================
-# UPDATE SYSTEM BINARY
+# UPDATE SYSTEM PACKAGE
 # ============================================================================
 
 step "Updating Openclaw (npm install -g openclaw@${TARGET_VERSION})"
 
 if $DRY_RUN; then
     echo "  [dry-run] Would run: npm install -g openclaw@${TARGET_VERSION}"
-else
-    npm install -g "openclaw@${TARGET_VERSION}" 2>&1 | tail -5
-fi
-
-# Verify the update
-if ! $DRY_RUN; then
-    NEW_VERSION=$(openclaw --version 2>/dev/null | head -1)
-    ok "New Openclaw version: ${NEW_VERSION}"
-else
     NEW_VERSION="(dry-run)"
-fi
-
-# ============================================================================
-# VERIFY ENTRYPOINT
-# ============================================================================
-
-step "Verifying entrypoint"
-
-if $DRY_RUN; then
-    echo "  [dry-run] Would check ${ENTRYPOINT}"
 else
-    if [ -f "$ENTRYPOINT" ]; then
-        ok "Entrypoint intact: ${ENTRYPOINT}"
-    else
-        warn "Entrypoint NOT found at expected path: ${ENTRYPOINT}"
-        warn "Bot user systemd services may need ExecStart updated!"
-        # Try to find the actual entrypoint
-        actual=$(find /usr/lib/node_modules/openclaw/ -name "index.js" -path "*/dist/*" 2>/dev/null | head -1)
-        if [ -n "$actual" ]; then
-            warn "Possible entrypoint: ${actual}"
+    npm install -g "openclaw@${TARGET_VERSION}" 2>&1 | tail -10
+    NEW_VERSION="$(openclaw --version 2>/dev/null | head -1)"
+    ok "New Openclaw version: ${NEW_VERSION}"
+fi
+
+step "Verifying global install"
+if $DRY_RUN; then
+    echo "  [dry-run] Would verify /usr/bin/openclaw and its target"
+else
+    if [ -x /usr/bin/openclaw ] || [ -e /usr/bin/openclaw ]; then
+        target="$(readlink -f /usr/bin/openclaw 2>/dev/null)"
+        if [ -n "$target" ] && [ -f "$target" ]; then
+            ok "/usr/bin/openclaw -> ${target} (exists)"
+        else
+            err "/usr/bin/openclaw does not resolve to a real file"
+            exit 1
         fi
+    else
+        err "/usr/bin/openclaw is missing after update"
+        exit 1
+    fi
+    if ! openclaw --version >/dev/null 2>&1; then
+        err "openclaw --version failed after update"
+        exit 1
     fi
 fi
 
 # ============================================================================
-# RESTART GATEWAYS
+# PER-USER POST-UPDATE PASS: validate, restart, check/fix
 # ============================================================================
 
-step "Restarting bot gateways"
+step "Per-account validate + restart + fix"
 
+RESTART_FLAG="1"; $DRY_RUN && RESTART_FLAG="0"
+FIX_FLAG="1"; { $NO_FIX || $DRY_RUN; } && FIX_FLAG="0"
+
+declare -A FINAL_STATUS
 for user in "${BOT_USERS[@]}"; do
-    uid=$(id -u "$user" 2>/dev/null || true)
-    if [ -z "$uid" ]; then
-        continue
-    fi
-
-    runtime_dir="/run/user/${uid}"
-    bus_path="${runtime_dir}/bus"
-
-    if [ ! -S "$bus_path" ]; then
-        warn "${user}: no D-Bus socket — cannot restart via systemd"
-        continue
-    fi
-
-    was_running="${USER_WAS_RUNNING[$user]:-false}"
-
-    if $was_running || true; then
-        if $DRY_RUN; then
-            echo "  [dry-run] Would restart gateway for ${user}"
-        else
-            sudo -u "$user" env \
-                XDG_RUNTIME_DIR="$runtime_dir" \
-                DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-                systemctl --user daemon-reload 2>/dev/null || true
-
-            sudo -u "$user" env \
-                XDG_RUNTIME_DIR="$runtime_dir" \
-                DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-                systemctl --user restart openclaw-gateway.service 2>/dev/null && {
-                ok "${user}: gateway restarted"
-            } || {
-                warn "${user}: failed to restart gateway"
-            }
-        fi
-    fi
-done
-
-# Allow gateways to start up
-if ! $DRY_RUN; then
-    info "Waiting for gateways to start up..."
-    sleep 5
-fi
-
-# ============================================================================
-# HEALTH CHECKS
-# ============================================================================
-
-step "Health checks"
-
-declare -A USER_STATUS
-
-for user in "${BOT_USERS[@]}"; do
-    uid=$(id -u "$user" 2>/dev/null || true)
-    if [ -z "$uid" ]; then
-        USER_STATUS[$user]="SKIP (no UID)"
-        continue
-    fi
-
-    runtime_dir="/run/user/${uid}"
-    bus_path="${runtime_dir}/bus"
-
-    if $DRY_RUN; then
-        USER_STATUS[$user]="(dry-run)"
-        echo "  [dry-run] Would check health for ${user}"
-        continue
-    fi
-
-    # Check if service is active
-    if [ -S "$bus_path" ]; then
-        active=$(sudo -u "$user" env \
-            XDG_RUNTIME_DIR="$runtime_dir" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=${bus_path}" \
-            timeout 5 systemctl --user is-active openclaw-gateway.service 2>/dev/null || echo "inactive")
-
-        if [ "$active" = "active" ]; then
-            # Try health check
-            if sudo -u "$user" timeout 15 openclaw health --timeout 10000 &>/dev/null 2>&1; then
-                USER_STATUS[$user]="HEALTHY"
-                ok "${user}: healthy"
-            else
-                USER_STATUS[$user]="RUNNING (health check failed)"
-                warn "${user}: running but health check failed — may still be starting"
-            fi
-        else
-            USER_STATUS[$user]="NOT RUNNING"
-            warn "${user}: gateway is not running (status: ${active})"
-        fi
+    if run_check_for_user "$user" "post-update" "$RESTART_FLAG" "$FIX_FLAG"; then
+        FINAL_STATUS[$user]=0
     else
-        USER_STATUS[$user]="NO D-BUS"
-        warn "${user}: no D-Bus socket"
+        FINAL_STATUS[$user]=$?
     fi
 done
 
@@ -357,32 +387,54 @@ done
 # SUMMARY
 # ============================================================================
 
+status_label() {
+    case "$1" in
+        0) echo "HEALTHY" ;;
+        1) echo "GATEWAY DOWN" ;;
+        2) echo "DOCTOR ERRORS" ;;
+        3) echo "SERVICE DISABLED" ;;
+        4) echo "SKIPPED (no config)" ;;
+        *) echo "UNKNOWN ($1)" ;;
+    esac
+}
+
 echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                  Update Summary                           ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
+echo "======================================================================"
+echo "                        Update Summary"
+echo "======================================================================"
 printf "  %-20s %s\n" "Previous version:" "$CURRENT_VERSION"
 printf "  %-20s %s\n" "New version:" "$NEW_VERSION"
 echo ""
-printf "  ${BOLD}%-20s %-15s${NC}\n" "USER" "STATUS"
-printf "  %-20s %-15s\n" "----" "------"
+printf "  ${BOLD}%-16s %-14s %-16s${NC}\n" "USER" "BASELINE" "AFTER UPDATE"
+printf "  %-16s %-14s %-16s\n" "----" "--------" "------------"
+
+bad_count=0
 for user in "${BOT_USERS[@]}"; do
-    status="${USER_STATUS[$user]:-UNKNOWN}"
-    case "$status" in
-        HEALTHY)     color="$GREEN" ;;
-        *dry-run*)   color="$CYAN" ;;
-        *)           color="$YELLOW" ;;
-    esac
-    printf "  %-20s ${color}%-15s${NC}\n" "$user" "$status"
+    b="$(status_label "${BASELINE_STATUS[$user]:-99}")"
+    a_code="${FINAL_STATUS[$user]:-99}"
+    a="$(status_label "$a_code")"
+    color="$YELLOW"
+    [ "$a_code" = "0" ] && color="$GREEN"
+    [ "$a_code" = "0" ] || bad_count=$((bad_count + 1))
+    printf "  %-16s %-14s ${color}%-16s${NC}\n" "$user" "$b" "$a"
 done
 echo ""
 
 if ! $SKIP_BACKUP && ! $DRY_RUN; then
-    info "Backups saved as ~/openclaw-backup-${TIMESTAMP}.tar.gz in each user's home"
+    info "Backups saved as ~/openclaw-backup-${STAMP}.tar.gz in each account's home"
 fi
+info "Full log: ${LOG_FILE}"
 
 if $DRY_RUN; then
     echo ""
-    info "This was a dry run — no changes were made"
+    info "This was a dry run -- no changes were made."
+    exit 0
 fi
+
+if [ "$bad_count" -gt 0 ]; then
+    err "${bad_count} account(s) need attention -- see log for [ACTION NEEDED]/[ERROR] lines."
+    exit 1
+fi
+
+ok "All accounts healthy after update."
+exit 0
